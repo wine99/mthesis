@@ -1,0 +1,495 @@
+\documentclass[twoside,11pt,openright]{report}
+
+\usepackage[utf8x]{inputenc}
+\usepackage[american]{babel}
+\usepackage{a4}
+\usepackage{latexsym}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{epsfig}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage{color}
+\usepackage{epstopdf}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[useregional]{datetime2}
+\DTMlangsetup[en-US]{showdayofmonth=false}
+\usepackage{lipsum}
+% \usepackage{pmboxdraw}
+\usepackage{textgreek}
+\usepackage[outputdir=build]{minted}
+\setminted{fontsize=\small}
+
+
+\theoremstyle{definition}
+\newtheorem{exmp}{Example}[chapter]
+
+\renewcommand*\sfdefault{lmss}
+\renewcommand*\ttdefault{txtt}
+
+\newcommand{\todo}[1]{{\color[rgb]{.5,0,0}\textbf{$\blacktriangleright$#1$\blacktriangleleft$}}}
+
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\pagestyle{empty}
+\pagenumbering{roman}
+\vspace*{\fill}\noindent{\rule{\linewidth}{1mm}\\[4ex]
+{\Huge\sf Improving Performance of the Datalog Engine in Flix}\\[2ex]
+{\huge\sf Zijun Yu, 202203581}\\[2ex]
+\noindent\rule{\linewidth}{1mm}\\[4ex]
+\noindent{\Large\sf Master's Thesis, Computer Science\\[1ex]
+  \today \\[1ex] Advisor: Magnus Madsen\\[15ex]}\\[\fill]}
+\epsfig{file=logo.eps}\clearpage
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\pagestyle{plain}
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+
+
+% \chapter*{Resum\'e}
+% \addcontentsline{toc}{chapter}{Resum\'e}
+
+% \todo{in Danish\dots}
+
+\chapter*{Acknowledgments}
+\addcontentsline{toc}{chapter}{Acknowledgments}
+
+\todo{\dots}
+
+\vspace{2ex}
+\begin{flushright}
+  \emph{Zijun Yu,}\\
+  \emph{Aarhus, \today.}
+\end{flushright}
+
+\tableofcontents
+\cleardoublepage
+\pagenumbering{arabic}
+\setcounter{secnumdepth}{2}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Introduction}
+\label{ch:intro}
+
+% \todo{motivate and explain the problem to be addressed}
+
+% \todo{example of a citation: \cite{DBLP:conf/sas/ChristensenMS03}}
+% \todo{get your bibtex entries from \url{https://dblp.org/}}
+
+Datalog is a simple, yet powerful, declarative logic programming language.
+Programs written in a logic programming language are a
+collection of logical statements and rules. This allows the programmer to
+solve problems by stating facts and rules about the problem domain,
+rather than by giving step-by-step algorithmic instructions.
+
+The Flix programming language is a new functional, declarative,
+and strongly typed programming language on the JVM.
+One of the main features is the first-class support for Datalog,
+allowing the programmers to write Datalog programs directly in Flix.
+
+The Datalog engine in Flix is implemented in Flix as a library,
+using semi-na\"ive evaluation as its evaluation strategy
+as most modern Datalog engines do. The Datalog engine in Flix has two parts.
+First, it compiles the given Datalog program into an intermediate representation,
+RAM (Relational Algebra Machine), represented as Flix values. Then it simply
+interprets the RAM program statement by statement. The semi-na\"ive evaluation
+is reflected in the way the RAM program is constructed. The generated RAM program is highly
+parallelizable, but it requires a concurrent data structure.
+
+The goal of this thesis is to improve the performance of the
+Datalog engine in Flix. The main contribution of this thesis is the parallelization
+of the evalution which include three parts: (1) a benchmark suite is proposed for
+evaluating the performance of the engine, (2) a new parallel statement is added to
+RAM, (3) a concurrent data structure is implemented to enable the interpretation of
+the parallel statement. To be more specific, a concurrent B+-tree is implemented
+to replace the Red-black tree used in the current implementation. The thesis statement
+is as follows: A concurrent B+-tree would make Datalog evalution in Flix more efficient.
+
+The rest of the thesis is organized as follows. In Chapter~\ref{ch:background},
+we give a brief introduction to Datalog, including the syntax and semantics of the language,
+as well as the semi-na\"ive evaluation, and how it leads to parallelism.
+In chapter \ref{ch:datalog_evaluation}, we first look at how semi-na\"ive algorithm is
+implemented in Flix, that is, how is the RAM program constructed and interpreted.
+We then look at how parallelism can be introduced. Lastly we touch on the benchmark suite.
+In chapter \ref{ch:btrees}, we look at the concurrent B+-tree implementation. In chapter
+\ref{ch:evaluation}, we evaluate the performance of the new implementation.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Background}
+\label{ch:background}
+
+\section{Datalog Syntax}
+
+A Datalog program consists of \textit{facts}, which are statements that are held to be true,
+and \textit{rules}, which say how to deduce new facts from known facts. One can think of
+facts as rows in a relational database table, and rules as queries that can be run on the
+database, or views that can be materialized.
+
+
+\begin{exmp}
+  The following database stores the edges of a directed graph by means of facts of the form
+  $edge(v_1, v_2)$, meaning that there is an edge from vertex $v_1$ to vertex $v_2$ in the graph:
+  \begin{minted}{text}
+                          edge("a", "b").
+                          edge("b", "c").
+                          edge("c", "d").
+  \end{minted}
+  Below are two rules to compute the transitive closure of a graph stored by means of
+  $edge$-facts:
+  \begin{minted}{text}
+                    tc(X, Y) :- edge(X, Y).
+                    tc(X, Y) :- edge(X, Z), tc(Z, Y).
+  \end{minted}
+  Intuitively, the first rule above says that if there is an edge from a vertex $X$ to a vertex $Y$,
+  then $(X, Y)$ belongs to the transitive closure of the graph. The second rule says that if there is
+  an edge from $X$ to $Z$ and there is exists a vertex $Y$ such that $(Z, Y)$ belongs to the transitive
+  closure, then $(X, Y)$ belongs to the transitive closure as well.
+\end{exmp}
+\label{exmp:tc}
+
+We now give the formal syntax of Datalog programs. A \textit{Datalog rule} $r$ is of the form:
+$$A_0 :- A_1, \ldots, A_n.$$
+where $n \geq 0$, the $A_i$'s are \textit{atoms}, and every atom is of the form $p(t_1, \ldots, t_m)$,
+where $p$ is a \textit{predicate symbol} and the $t_i$'s are \textit{terms}. A \textit{term} is either
+a \textit{variable} or a \textit{constant}. In the example above, $edge$ and $tc$ are predicate symbols,
+,$"a"$, $"b"$, $"c"$, $"d"$ are constants, and $X$, $Y$, $Z$ are variables. Every variable appearing
+in $A_0$ (the \textit{head} of a rule) also appears in at least one of the $A_1, \ldots, A_n$ (the \textit{body} of a rule).
+This requirement is called \textit{safety}
+and is used to avoid rules yielding infinite sets of facts from a finite set of facts.
+The intuitive meaning of the Datalog rule above is that if
+the atoms $A_1, \ldots, A_n$ are true, then the atom $A_0$ is also true.
+A $fact$ is a rule with an empty body, i.e., a rule of the form $A_0 :-.$ which can be written as $A_0.$.
+
+A \textit{Datalog program} is a finite set of Datalog rules. The \textit{definition} of a predicate symbol $p$
+in a program $P$, denoted $def(p, P)$, is the set of rules of $P$ having $p$ in the head atom.
+Recall that a database can be seen as a finite set of facts. In the context of logic programming
+all the knowledge (facts and general rules) is usually contained in a single logic program.
+We consider two sets of Datalog rules:
+\begin{enumerate}
+  \item a set of facts $D$ that represent tuples (rows) of a database; and
+  \item a Datalog program $P$ whose rules define new realtions (or ``views'') from the database.
+\end{enumerate}
+$D$ is called the \textit{Extentional Database} (EDB) and $P$ is called the \textit{Intensional Database} (IDB).
+We will refer to $D$ as database and $P$ as Datalog program.
+Thus, predicates symbols are partitioned into two disjoint sets: \textit{base} (or EDB or \textit{extentional}) and
+\textit{derived} (or IDB or \textit{intensional}).
+The definition of base predicate symbols is stored in $D$.
+Base predicate symbols can appear in the body of rules in $P$ but not in the head.
+Derived predicate symbols cannot appear in $D$ and their definition is in $P$. We will use $P_D$ to denote $P \cup D$.
+
+\section{Datalog Semantics}
+
+We give the least-fixpoint semantics of Datalog, which defines the outcome of the program in an operational way,
+based on repeatedly applying the rules of the program until no new facts can be derived and thus a fixpoint is reached.
+It is well known that this semantics is equivalent to the model-theoretic semantics as well as
+the proof-theoretic semantics \cite{10.5555/551350}.
+
+The fixpoint semantics is given in terms of an operator called the \textit{immdediate consequence operator}
+which derives new ground atoms starting from known ground atoms, using the rules of the program.
+Namely, $T_{P_D}$ takes as input a set of ground atoms $I$, applies the rules, and returns as output a set of ground atoms $T_{P_D}(I)$,
+called the \textit{immediate consequences} of $I$ w.r.t. $P_D$.
+We say that a set of ground atoms $I$ is a \textit{fixpoint}
+of $T_{P_D}$ if $T_{P_D}(I) = I$.
+
+It is easy to see that $T_{P_D}$ is monotonic, that is, if $I_1 \subseteq I_2$, then $T_{P_D}(I_1) \subseteq T_{P_D}(I_2)$,
+for any sets of ground atoms $I_1$ and $I_2$. By the Knaster-Tarski theorem, since $T_{P_D}$ is monotonic
+it has a least fixpoint (that is, a fixpoint that is included in any other fixpoint), which we denote as
+$\textit{lfp}(T_{P_D})$. The fixpoint semantics of $P_D$ is given by the least fixpoint $\textit{lfp}(T_{P_D})$.
+
+\begin{exmp}
+  Consider the Datalog program in example \ref{exmp:tc}. Applying $T_{P_D}$ yields the following:
+  \begin{align*}
+    I_1 = T_{P_D}(\emptyset) & = \{edge("a", "b"), edge("b", "c"), edge("c", "d")\},    \\
+    I_2 = T_{P_D}(I_1)       & = I_1 \cup \{tc("a", "b"), tc("b", "c"), tc("c", "d")\}, \\
+    I_3 = T_{P_D}(I_2)       & = I_2 \cup \{tc("a", "c"), tc("b", "d")\},               \\
+    I_4 = T_{P_D}(I_3)       & = I_3 \cup \{tc("a", "d")\},                             \\
+    I_5 = T_{P_D}(I_4)       & = I_4.
+  \end{align*}
+  Thus, $I_4$ is the least fixpoint of $T_{P_D}$.
+\end{exmp}
+\label{exmp:tpd}
+
+\section{Datalog Evaluation}
+
+The fixpoint semantics immdediately leads to an algorithm to evaluate Datalog programs, called \textit{nai\"ve}.
+To define the algorithm, we first define a function called \textit{Eval-Rule} that takes as input a rule $r$ and a set of ground atoms $I$
+containing the relations of the predicates appearing in the body of the rule, and returns the set of ground atoms that are the immediate consequences
+of $I$ w.r.t. $r$. The function \textit{Eval-Rule} can be defined precisely using relational algebra, but we omit the details here,
+as the intuition is simple and clear.
+
+\begin{exmp}
+  Let $r$ be the second rule in example \ref{exmp:tc} and $I = I_3$ in example \ref{exmp:tpd}, calling \textit{Eval-Rule}
+  on rule $r$ and relation $edge$ and $tc$ yields the following:
+  $$
+    \textit{Eval-Rule}(r, edge, tc) = \{tc("a", "c"), tc("b", "d"), tc("a", "d")\}.
+  $$
+\end{exmp}
+\label{exmp:eval-rule}
+
+We then define another function called \textit{Eval} that evaluate a set of rules whose predicates in the head are the same.
+Consider a program $P$ and a database $D$. Let $R_1, \ldots, R_n$ be the base relations and $P_1, \ldots, P_m$ be the derived relations.
+For each derived predicate symbol $p_i$, we define $Eval(p_i, R_1, \ldots, R_n, P_1, \ldots, P_m)$ as the union
+of calling \textit{Eval-Rule} over all rules with $p_i$ in the head.
+
+Now, given a datalog program $P$ and a database $D$, where the base predicate symbols are $r_1, \ldots, r_n$,
+the derived predicate symbols are $p_1, \ldots, p_m$, and the base relations are $R_1, \ldots, R_n$,
+algorithm 1 performs the evaluation of $P$ over $D$.
+
+\begin{algorithm}
+  \caption{Naive-Evaluation}
+  \begin{algorithmic}[1] % The number in square brackets specifies the line numbering
+    \For{$i := 1$ to $m$}
+    \State $P_i := \emptyset$
+    \EndFor
+    \Repeat
+    \For{$i := 1$ to $m$}
+    \State $P'_i := P_i$
+    \EndFor
+    \For{$i := 1$ to $m$}
+    \State $P_i := \text{Eval}(p_i, R_1, \ldots, R_k, P'_1, \ldots, P'_m)$
+    \EndFor
+    \Until{$P_i = P'_i$ for all $1 \leq i \leq m$}
+    \State \Return $P_1, \ldots, P_m$
+  \end{algorithmic}
+\end{algorithm}
+\label{alg:naive-eval}
+
+One shortcoming of the nai\"ve evaluation is that at each iteration, all tuples computed in the previous
+iterations are recomputed. For example, in example \ref{exmp:eval-rule}, the tuples $tc("a", "c")$ and $tc("b", "d")$
+are already computed in the previous iteration (they are already in $I_3$). The problem is that in the nai\"ve evaluation,
+in each iteration, the tuples of the derived relations from earlier iterations are used in \textit{Eval-Rule}.
+The solution to this problem is called \textit{semi-na\"ive evaluation}.
+
+We start by introducing an incremental version of the \textit{Eval-Rule} function. Consider a rule $r$ of the form
+$$A_0 :- A_1, \ldots, A_n.$$
+and assume to have a relation $R_i$ and an ``incremental'' relation $\Delta R_i$ for each atom $A_i$ in the body of the rule.
+We define the incremental version of \textit{Eval-Rule} as follows:
+\begin{equation*}
+  \begin{split}
+    \textit{Eval-Rule-Incr}(r, R_1, \ldots, R_n,  \Delta R_1, \ldots, \Delta R_n) = \\
+    \bigcup_{1 \leq i \leq n} \textit{Eval-Rule}(r, R_1, \ldots, R_{i-1}, \Delta R_i, R_{i+1}, \ldots, R_n).
+  \end{split}
+\end{equation*}
+We can now define the \textit{semi-na\"ive evaluation} as shown in algorithm 2.
+
+\begin{algorithm}
+  \caption{Seminaive-Evaluation}
+  \begin{algorithmic}[1]
+    \For{$i \leftarrow 1$ \textbf{to} $m$}
+    \State $\Delta P_i \leftarrow \text{Eval-rule}(p_i, R_1, \ldots, R_k, \emptyset, \ldots, \emptyset)$
+    \State $P_i \leftarrow \Delta P_i$
+    \EndFor
+    \Repeat
+    \For{$i \leftarrow 1$ \textbf{to} $m$}
+    \State $\Delta P'_i \leftarrow \Delta P_i$
+    \EndFor
+    \For{$i \leftarrow 1$ \textbf{to} $m$}
+    \State $\Delta P_i \leftarrow \text{Eval-rule-incr}(p_i, R_1, \ldots, R_k, P_1, \ldots, P_m, \Delta P'_1, \ldots, \Delta P'_m)$
+    \State $\Delta P_i \leftarrow \Delta P_i - P_i$
+    \EndFor
+    \For{$i \leftarrow 1$ \textbf{to} $m$}
+    \State $P_i \leftarrow P_i \cup \Delta P_i$
+    \EndFor
+    \Until{$\Delta P_i = \emptyset$ \textbf{for all} $1 \leq i \leq m$}
+    \State \Return $P_1, \ldots, P_m$
+  \end{algorithmic}
+\end{algorithm}
+
+It is obvious that the semi-na\"ive evaluation is parallelizable. There are two level of parallelism in algorithm 2.
+First, each invocation of \textit{Eval-Rule-Incr} can be done in parallel, that is, the body of loop from line 9 to line 12.
+Second, as per the definition of \textit{Eval-Rule-Incr}, the invocations of \textit{Eval-Rule} called by \textit{Eval-Rule-Incr}
+can also be done in parallel. This is the main idea of the parallelization of this thesis. Also, the body of loop from line 1 to line 4
+can be done in parallel.
+
+\section{Datalog extensions and Datalog in Flix}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Datalog Evaluation in Flix}
+\label{ch:datalog_evaluation}
+
+In Flix, the Datalog engine is implemented as a library. When a flix program is executed,
+the Datalog rules are compiled into an intermediate representation called RAM (Relational Algebra Machine),
+which is then interpreted statement by statement. The RAM program is constructed in a way that
+reflects the semi-na\"ive evaluation algorithm. In this chapter, we first look at how semi-na\"ive algorithm is
+implemented in Flix, that is, how is the RAM program constructed and interpreted.
+We then look at how parallelism can be introduced. Lastly we touch on the benchmark suite.
+
+\section{RAM}
+
+We will not introduce the definition of RAM as flix code here. Instead, we will give examples
+of stringified RAM programs. We will denote $P_i, \Delta P_i, \Delta P_i'$ in algorithm 2 as \textit{Full} relations,
+\textit{Delta} relations, and \textit{New} relations.
+
+\begin{exmp}
+  Consider the Datalog program in example \ref{exmp:tc}. We have one base predicate $edge$ and one derived predicate $tc$.
+  The initializations part of the semi-na\"ive evaluation algorithm (line 1 to line 4) will be translated into the following RAM program:
+  \begin{minted}[escapeinside=||]{text}
+              // tc(x, y) :- edge(x, y).
+              search 0$ |$\in$| edge do
+                  project (0$[0], 0$[1]) into Δtc
+              end;
+              // tc(x, z) :- tc(x, y), edge(y, z).
+              search 0$ |$\in$| tc do
+                  query {1$ |$\in$| edge |\textbar| 1$[0] == 0$[1]} do
+                      project (0$[0], 1$[1]) into Δtc
+                  end
+              end;
+              merge Δtc into tc;
+  \end{minted}
+  The invocation of \textit{Eval-Rule} for the derived predicate $tc$ is translated into the above two RAM statements.
+  The translation is on a rule by rule basis and is mechanical.
+  Variables are represented by integers followed by a dollar sign and they hold a tuple of a relation.
+  Each atom in the body is translated into a \textit{search}.
+  The \textit{search} statement is used to iterate over the tuples of a relation. The \textit{query} statement
+  is like \textit{search} but with a filter of the form \texttt{x[0]==a, x[1]==b, x[2]==c, ...}
+  The difference between using a \textit{query} and using a \textit{search} with \textit{if}s is that the former
+  is more efficient, as the tuples are stored using trees and query is interpreted using range query on the trees
+  that avoid unnecessary walking over the tree. We will see more about this in chapter \ref{ch:btrees}.
+
+  The main loop of the semi-na\"ive evaluation algorithm (line 5 to line 16) will be translated into the following RAM program:
+  \begin{minted}[escapeinside=||]{text}
+          until(Δtc == |$\emptyset$|) do
+              purge Δtc';
+              // tc(x, y) :- Edge(x, y).
+              // tc(x, z) :- tc(x, y), Edge(y, z).
+              search 0$ |$\in$| Δtc do
+                  query {1$ |$\in$| Edge |\textbar| 1$[0] == 0$[1]} do
+                      if((0$[0], 1$[1]) |$\notin$| tc) then
+                          project (0$[0], 1$[1]) into Δtc'
+                      end
+                  end
+              end;
+              merge Δtc' into tc;
+              Δtc := Δtc'
+          end
+  \end{minted}
+
+  In this program, \texttt{tc} is the only derived predicate. Calling \textit{Eval-Rule-Incr} for \texttt{tc} includes
+  translation of both rules. However, there is no derived predicate in the body of the first rule,
+  so the first rule is translated to an empty statement. For the second rule, the derived predicate \texttt{tc}
+  appears in one atom in the body, so the \textit{search} statement is used to iterate over the \textit{New} relation
+  $\Delta$\texttt{tc}. In algorithm 2, line 11 is used to compute the \texttt{New} relations by set difference.
+  In the implementation, it is done by the \textit{if} operation to check if the tuple is already in the
+  \texttt{Full} relation.
+\end{exmp}
+\label{exmp:tc-ram}
+
+We will show one more example of a more complex Datalog program,
+where derived predicates appear more than once in the body of a rule,
+which will make the translation of \textit{Eval-Rule-Incr} more interesting.
+
+\begin{exmp}
+  The following Datalog program perform a point-to analysis of varaibles in a C program \cite{PGL-014}.
+  The instructions of the program can be translated into \textit{EDB} relations as follows:
+  \begin{minted}[escapeinside=||]{text}
+                  AddressOf(a, b) |$\text{representing}$| a=\&b
+                  Assign(a, b) |$\text{representing}$| a=b
+                  Load(a, b) |$\text{representing}$| a=*b
+                  Store(a, b) |$\text{representing}$| *a=b
+  \end{minted}
+  The point-to analysis can now be done usinga Datalog program storing pairs of variables \texttt{a} and
+  \texttt{b} in intentional relation \texttt{PointsTo} if \texttt{a} may point to \texttt{b}.
+  The program contains the following four rules with the same head:
+  \begin{minted}{text}
+      PointsTo(x, y) :- AddressOf(x, y).
+      PointsTo(x, y) :- Assign(x, z), PointsTo(z, y).
+      PointsTo(x, w) :- Load(x, z), PointsTo(z, y), PointsTo(y, w).
+      PointsTo(x, y) :- Store(z, w), PointsTo(z, x), PointsTo(w, y).
+  \end{minted}
+  We pay attention to the load rule (the third rule). \textit{Eval-rule} (line 2 of algorithm 2)
+  for this rule will be translated into the following one RAM statement:
+  \begin{minted}[escapeinside=||]{text}
+          search 0$ |$\in$| Load do
+              query {1$ |$\in$| PointsTo |$\textbar$| 1$[0] == 0$[1]} do
+                  query {2$ |$\in$| PointsTo |$\textbar$| 2$[0] == 1$[1]} do
+                      project (0$[0], 2$[1]) into ΔPointsTo
+                  end
+              end
+          end;
+  \end{minted}
+  Because there are two derived predicates in the body,
+  \textit{Eval-Rule-Incr} (line 11 of algorithm 2) for this rule will be translated into two RAM statements.
+  This correspond to the union operation in the definition of \textit{Eval-Rule-Incr}:
+  \begin{minted}[escapeinside=||]{text}
+        search 0$ |$\in$| Store do
+            query {1$ |$\in$| ΔPointsTo |$\textbar$| 1$[0] == 0$[0]} do
+                query {2$ |$\in$| PointsTo |$\textbar$| 2$[0] == 0$[1]} do
+                    if((1$[1], 2$[1]) |$\notin$| PointsTo) then
+                        project (1$[1], 2$[1]) into ΔPointsTo'
+                    end
+                end
+            end
+        end;
+        search 0$ |$\in$| Store do
+            query {1$ |$\in$| PointsTo |$\textbar$| 1$[0] == 0$[0]} do
+                query {2$ |$\in$| ΔPointsTo |$\textbar$| 2$[0] == 0$[1]} do
+                    if((1$[1], 2$[1]) |$\notin$| PointsTo) thens
+                        project (1$[1], 2$[1]) into ΔPointsTo'
+                    end
+                end
+            end
+        end;
+  \end{minted}
+\end{exmp}
+\label{exmp:point-to}
+
+\section{Adding Parallelism}
+
+It is now clear that each statement translated from a rule can be executed in parallel.
+Consider exmple \ref{exmp:point-to}, the two \textit{search} statements in the \textit{Eval-Rule-Incr}
+for the load rule can be executed in parallel. In fact, the assign rule will be translated into
+one statement, the load rule and the store rule will both be translated into two statements. All
+five statements can be executed in parallel. We mentioned in the previous chapter that the
+there are two levels of parallelism in the semi-na\"ive evaluation algorithm. This nested
+parallelism is automatically spread out in the way the RAM program is constructed.
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{B-Trees}
+\label{ch:btrees}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Evaluation}
+\label{ch:evaluation}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+\todo{conclude on the problem statement from the introduction}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliographystyle{plain}
+\bibliography{refs}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\cleardoublepage
+\appendix
+\chapter{The Technical Details}
+
+\todo{\dots}
+
+\end{document}
+
