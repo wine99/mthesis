@@ -452,36 +452,37 @@ The fourth property means that B-tree is a balanced tree. The second property en
 
 A B+ tree is a variant of a B-tree where the internal nodes do not store any pointers to records, thus all pointers to records are stored in the leaf nodes. In addition, a leaf node may include a pointer to the next leaf node to speed sequential access. This makes range queries easy to implement. Since in a B+ tree, values are not stored in internal nodes, all keys appear twice in the tree: once in an internal node and once in a leaf node. This leads to design choice to be made. In figure \ref{fig:btree_node}, if we denote all the keys stored in a subtree at pointer $P_i$ as $V_i$, then any $v \in V_i$ can either staisfy $K_{i-1} < v \leq K_i$ or $K_{i-1} \leq v < K_i$. We prefer the former because it makes the implementation of search consistent. When performing a search for some $k$ inside a node, we return the index of the first key that is greater than or equal to $k$. This index will always be the correct index of the pointer array to follow.
 
-\begin{figure}
+\begin{figure}[h]
   \centering
+  \vspace{0.5em}
   \begin{tikzpicture}
     % Draw the main rectangle
-    \draw (0,0) rectangle (10,0.8);
+    \draw (0,0) rectangle (8,0.8);
 
     % Draw the partitions
-    \draw (1.5,0) -- (1.5,0.8);
-    \draw (3,0) -- (3,0.8);
-    \draw (4.5,0) -- (4.5,0.8);
-    \draw (7,0) -- (7,0.8);
-    \draw (8.5,0) -- (8.5,0.8);
+    \draw (1.2,0) -- (1.2,0.8);
+    \draw (2.4,0) -- (2.4,0.8);
+    \draw (3.6,0) -- (3.6,0.8);
+    \draw (5.6,0) -- (5.6,0.8);
+    \draw (6.8,0) -- (6.8,0.8);
 
     % Add labels inside the rectangles
-    \node at (0.75,0.4) {\small $P_0$};
-    \node at (2.25,0.4) {\small $K_1$};
-    \node at (3.75,0.4) {\small $P_1$};
-    \node at (5.75,0.4) {\small $\cdots$};
-    \node at (7.75,0.4) {\small $K_{m}$};
-    \node at (9.25,0.4) {\small $P_{m}$};
+    \node at (0.6,0.4) {\small $P_0$};
+    \node at (1.8,0.4) {\small $K_1$};
+    \node at (3.0,0.4) {\small $P_1$};
+    \node at (4.6,0.4) {\small $\cdots$};
+    \node at (6.2,0.4) {\small $K_{m}$};
+    \node at (7.4,0.4) {\small $P_{m}$};
 
     % Draw arrows
-    \draw[->] (0.75,0) -- (0.25,-0.8);
-    \draw[->] (3.75,0) -- (3.75,-0.8);
-    % \draw[->] (7.75,0) -- (7.25,-0.8);
-    \draw[->] (9.25,0) -- (9.75,-0.8);
+    \draw[->] (0.6,0) -- (0.1,-0.8);
+    \draw[->] (3.0,0) -- (3.0,-0.8);
+    \draw[->] (7.4,0) -- (7.9,-0.8);
   \end{tikzpicture}
   \caption{A B+ tree node}
   \label{fig:btree_node}
 \end{figure}
+
 
 Compared to binary search trees, such as red-black trees, B-trees and its variants are more efficient in terms of I/O operations. B-trees are widely used in database systems to store indexes. The records in a database are stored in disk and pointers to the records are stored as values in the B-tree. The tree itself, serves as an index to the records, is also stored in disk. In our case, values are pointers to tuples in memory, and the tree is stored in memory as well. In binary search trees, there is a key and two pointers in each node, while in B-trees, $m$ keys are paired with only $m+1$ pointers. This means two things. First, since a key is paired with less pointers, B-trees use less memory. Second, the tree is shallower than a binary search tree so less pointers are followed to find a key. And since the keys are stored consecutively as an array in a node, the keys are more likely to be in the cache when search inside a node. This means that B-trees is more cache friendly than binary search trees.
 
@@ -512,29 +513,30 @@ def main(): Int32 =
 
 A node in the B+ tree can be either an inner node or a leaf node. The \texttt{Empty} case searves as \texttt{Null} in other languages. The structure of the inner node is similar to that of the leaf node, they both contain an array of keys, an array of child nodes or values respectively, and an integer that stores the number of keys that currently exist in the node. The leaf node contains an extra pointer to the right sibling.
 
-We now give the insertion algorithm for a B+ tree in algorithm \ref{alg:bplus-insert}, which will be used in the evaluation in the next chapter and is also the base for the $\text{B}^{\text{link}}$ tree.
+\section{Insertion in B+ Trees}
+
+We now give the insertion algorithm for a B+ tree in algorithm \ref{alg:bplus-insert}, which will be used in the evaluation in the next chapter and is also the base for the $\text{B}^{\text{link}}$ tree. For convenience, the variable $keys$ and $vals$ are used to represent the key and value arrays in the node that is currently examined in the context.
 
 \begin{algorithm}[h]
-  \caption{Insertion in B+ Tree}
+  \caption{Insertion in B+ Tree}\label{alg:bplus-insert}
   \begin{algorithmic}[1] % The number in square brackets specifies the line numbering
     \Function{Insert}{$t, k, v$}
     \State $root \gets \text{root}(t)$
     \State $leaf, stack \gets \text{descendToLeaf}(root, k)$
     \State $i \gets \text{searchNode}(k, leaf)$
-    \State $keys \gets \text{keys in leaf}$
     \If {$i = \text{num}(keys)$ or $k \neq keys[i]$}
     \State \text{insertLeaf}$(k, v, i, stack, leaf, root)$
     \Else \State $keys[i] \gets k$
     \EndIf
     \EndFunction
 
-    \Function{insertLeaf}{$k, v, i, leaf, stack, root$}
-    \State $k', v' \gets \text{insert k and v into the key and value array}$
+    \Function{insertLeaf}{$k, v, i, node, stack, root$}
+    \State $k', v' \gets$ insert $k$ and $v$ into $keys$ and $vals$
     \State \Comment {$k'$ and $v'$ are the overflowed key and value if the array is full}
     \If {$k'$ and $v'$ are null}
     \State increase the number of keys in the leaf by 1
     \Else
-    \State $newNode, upKey \gets \text{split leaf}$
+    \State $newNode, upKey \gets \text{splitLeaf}(node, k', v')$
     \State put $k'$ and $v'$ into $newNode$
     \If {$stack$ is empty}
     \State $newRoot \gets \text{create a new inner node}$
@@ -548,11 +550,10 @@ We now give the insertion algorithm for a B+ tree in algorithm \ref{alg:bplus-in
     \EndFunction
 
     \Function{insertInner}{$k, n, i, node, stack, root$}
-    \State same as insertLeaf, the difference is at splitting the node
+    \State same as insertLeaf, with the function of splitLeaf replaced by splitInner
     \EndFunction
   \end{algorithmic}
 \end{algorithm}
-\label{alg:bplus-insert}
 
 The insertion algorithm is a recursive algorithm. It first descends to the leaf node where the key should be inserted. The descending function simply calls the search function to find the child node to follow and pushes the current node and the index of the child into a stack, and then repeatedly calls itself on the child node until it reaches a leaf node. The search function is a binary search function that returns the index of the first key that is greater than or equal to the key to be inserted, as we have discussed above.
 
@@ -560,7 +561,208 @@ The insertion function then checks if the key already exists in the leaf node, i
 
 \section{$\text{B}^{\text{link}}$ Trees}
 
-\lipsum[1] % Placeholder for the abstract text.
+There are many variants of B-trees that are designed to support concurrent reading and writing. In thisp roject, we mainly studied the $\text{B}^{\text{link}}$ tree proposed by Lehman and Yao \cite{10.1145/319628.319663}.
+
+The idea of the $\text{B}^{\text{link}}$ is to add another key-pointer pair to each inner node and an additional key to each leaf node. The structure of a node in a $\text{B}^{\text{link}}$ tree is shown in figure \ref{fig:blink_node}. The additional key is called the \textit{high key}, i.e., the largest key in the subtree rooted at that node. For an inner node, the high key is the highest key in the subtree pointed by $P_m$. For a leaf node, the high key is the key is the same as $K_m$. The additional pointer is called \textit{link} and it points to the right sibling. The node on every level is now linked together, hence the name $\text{B}^{\text{link}}$ tree. Note this change still satisfy the sorted property of a node, that is, all keys in the subtree pointed by $P_m$ are greater than $K_m$ and less than or equal to the high key $K_{m+1}$.
+
+\begin{figure}[h]
+  \centering
+  \vspace{0.5em}
+  \begin{tikzpicture}
+    % Draw the main rectangle
+    \draw (0,0) rectangle (10.4,0.8);
+
+    % Draw the partitions
+    \draw (1.2,0) -- (1.2,0.8);
+    \draw (2.4,0) -- (2.4,0.8);
+    \draw (3.6,0) -- (3.6,0.8);
+    \draw (5.6,0) -- (5.6,0.8);
+    \draw (6.8,0) -- (6.8,0.8);
+    \draw (8.0,0) -- (8.0,0.8);
+    \draw (9.2,0) -- (9.2,0.8);
+
+    % Add labels inside the rectangles
+    \node at (0.6,0.4) {\small $P_0$};
+    \node at (1.8,0.4) {\small $K_1$};
+    \node at (3.0,0.4) {\small $P_1$};
+    \node at (4.6,0.4) {\small $\cdots$};
+    \node at (6.2,0.4) {\small $K_{m}$};
+    \node at (7.4,0.4) {\small $P_{m}$};
+    \node at (8.6,0.4) {\small $K_{m+1}$};
+    \node at (9.8,0.4) {\small $P_{m+1}$};
+
+    % Draw arrows
+    \draw[->] (0.6,0) -- (0.1,-0.8);
+    \draw[->] (3.0,0) -- (3.0,-0.8);
+    \draw[->] (7.4,0) -- (7.9,-0.8);
+    \draw[->] (10.4,0.4) -- (11.4,0.4); % Horizontal arrow to the right
+  \end{tikzpicture}
+  \caption{A $\text{B}^{\text{link}}$ tree node}
+  \label{fig:blink_node}
+\end{figure}
+
+The $\text{B}^{\text{link}}$ tree is essentially a fine-grained locking scheme. Each node is paired with a lock. When a thread is accessing the fields in a node, it has to acquire the lock first. The high key and the link then serve as a way to know if the current node is being split by another thread. When accessing a node, if the search key  exceeds the high key, it means that the current node has been split and the thread should follow the link to the right sibling.
+
+Figure \ref{fig:blink_tree} from Lehman and Yao shows an example of a $\text{B}^{\text{link}}$ tree. Our specification differs from Lehman and Yao in that the rightmost node at each level has $+\infty$ as its high value, i.e., all the 99's in the diagram are changed to $+\infty$. Although the key $+\infty$ never appears in the tree, this decision is consistent as long as in the begning when the empty root is created, $+\infty$ is set as the high value. We will see later that this will the implementation easier in section \ref{sec:blink-insert}.
+
+\begin{figure}[h]
+  \centering
+  \vspace{0.5em}
+  \includegraphics[width=\textwidth]{asset/blink_tree.png}
+  \vspace{-1em}
+  \caption{A $\text{B}^{\text{link}}$ tree}
+  \label{fig:blink_tree}
+\end{figure}
+
+The type definition of the $\text{B}^{\text{link}}$ tree in Flix is as follows:
+\begin{minted}{text}
+enum BLinkTree[k: Type, v: Type, r: Region](Region[r], Ref[Node[k, v, r], r])
+enum Node[k: Type, v: Type, r: Region] {
+    case Inner(Int32, Ref[Int32, r], Array[k, r], Array[Node[k, v, r], r],
+               Ref[Node[k, v, r], r], ReentrantReadWriteLock[r])
+    case  Leaf(Int32, Ref[Int32, r], Array[k, r], Array[v, r],
+               Ref[Node[k, v, r], r], ReentrantReadWriteLock[r])
+    case Empty
+}
+\end{minted}
+
+The node structure is similar to that of the B+ tree, with the addition of the high key, stored in the last element of the key array, the link, and the lock. The original paper uses a simple mutex lock because in their setting, a node is stored as a block in the disk. Reading a block is an atomic operation so there is no locking involved in the \texttt{get} method. It is only when then intension of reading the block is to update it that the lock is acquired. In our setting, we need to read-write locks because the nodes are stored in memory and when reading the fields in a node, we need to make sure that these fileds are not being modified at the same time by another thread. The extra ineteger represent the level of the node in the tree. Leaf nodes are at level 0, and the level increases as we go up the tree. Once a node is created, the level is fixed and will not change. Level is needed here to deal with the case that Lehman and Yao did not discuss, that is, when the root node is concurrently split by other threads. We will discuss this in section \ref{sec:blink-insert}.
+
+\section{Search in $\text{B}^{\text{link}}$ Trees}
+\label{sec:blink-search}
+
+To search for a value $k$ in the tree, the search process begins at the root and proceeds by comparing $k$ with the keys in each node in a path down the tree. At each node, we first acquire the read lock and then examine the keys and high key. If $k$ is greater than the high key, we follow the link to the right sibling, unlock the current node, and repeat searching in the sibling. Otherwise, we examine the key array to find the index of the first key that is greater than or equal to $k$. Then we use the index to get the child node to follow. We unlock the current node, push it the stack, and repeat the search in the child node until we reach a leaf node.
+
+The details of the search function is shown in algorithm \ref{alg:blink-search}, following the same naming convention in \ref{alg:bplus-insert}. Note how the high key is used to determine if we need to follow the link to the right sibling. In the descending function, even if we have found the correct child to follow at some level $i + 1$, when we examine that child node at level $i$, it is still possible that it has been split by another thread, and the key we are looking for is moved to the right.
+
+Locking is involved in the function \texttt{searchInner} and \texttt{searchLeaf}. The difference is that in \texttt{searchInner}, when we have finished searching the current level and have obtained the correct child node to follow, we release the lock as we will then proceed to the next level. In \texttt{searchLeaf}, when the function returns, the lock is still held, as the node needs to be examined further depending on if we are only reading or doing insertion.
+
+\begin{algorithm}[h]
+  \caption{Search in $\text{B}^{\text{link}}$ Tree}\label{alg:blink-search}
+  \begin{algorithmic}[1] % The number in square brackets specifies the line numbering
+    \Function {get}{k, t}
+    \State $root \gets \text{root}(t)$
+    \State $leaf, stack \gets \text{descendToLeaf}(k, root, [])$
+    \State $leaf', i \gets \text{searchLeaf}(k, leaf, \text{false})$
+    \If {$i = \text{num}(keys)$ or $k \neq keys[i]$}
+    \State release read lock of $leaf'$
+    \State \Return None
+    \Else
+    \State $v \gets vals[i]$
+    \State release read lock of $leaf'$
+    \State \Return Some($v$)
+    \EndIf
+    \EndFunction
+    \Function {descendToLeaf}{k, node, stack}
+    \If {$node$ is leaf}
+    \State \Return $node, stack$
+    \Else
+    \State $child, stack' \gets \text{searchInner}(k, node, stack)$
+    \State \Return \text{descendToLeaf}$(k, child, stack')$
+    \EndIf
+    \EndFunction
+    \Function {searchInner}{k, node, stack}
+    \State acquire read lock of $node$
+    \If {needToGoRight(k, node)}
+    \State $sibling \gets \text{link}(node)$
+    \State release read lock of $node$
+    \State \Return \text{searchInner}(k, sibling, stack)
+    \Else
+    \State $i \gets \text{findFirstGreaterOrEqual}(k, keys)$
+    \State $child \gets vals[i]$
+    \State release read lock of $node$
+    \State \Return $child$, $node :: stack$
+    \EndIf
+    \EndFunction
+    \Function {searchLeaf}{k, node, isWriting}
+    \State acquire read or write lock depending on $isWriting$
+    \If {needToGoRight(k, node)}
+    \State $sibling \gets \text{link}(node)$
+    \State release read or write lock depending on $isWriting$
+    \State \Return \text{searchInner}$(k, sibling, isWriting)$
+    \Else
+    \State $i \gets \text{findFirstGreaterOrEqual}(k, keys)$
+    \State \Return $node, i$
+    \EndIf
+    \EndFunction
+    \Function {needToGoRight}{k, node}
+    \State \Return link($node$) $\neq$ null $\wedge$ $k > \text{high key}(node)$
+    \EndFunction
+  \end{algorithmic}
+\end{algorithm}
+
+\section{Insertion in $\text{B}^{\text{link}}$ Trees}
+\label{sec:blink-insert}
+
+To insert a key-value pair, we first perform operations similar to that for searching. Beginning at the root, we scan down the tree to the leaf node that should contain the key, keeping track of the rightmost node that we examined at each level in a stack.
+
+The insertion of the key-value pair into the leaf node may necessitate splitting the node. In this case, we split the node as what we have seen in the B+ tree, with the addition of changing the high key. The high key of the new node is set to the high key of the old node, and the high key of the old node is set to the last key that remains in the old node after splitting, which is then pushed up to the parent node recoreded in the stack. The parent node, too, may need to be split. If so, we backtrack up the tree, splitting nodes and inserting new pointers into their parents. In all cases, we lock a node before modifying it. Just as what we discussed in the insertion algorithm of the B+ tree, the splitting of the inner node and the leaf node slightly differs. When splitting the leaf node, the high key is pushed up to the parent, while when splitting the inner node, it is the middle key which neither remains in the old node nor be put in the new node that is pushed up to the parent.
+
+The details of the insertion algorithm is shown in algorithm \ref{alg:blink-insert}, again following the same naming convention in \ref{alg:bplus-insert}, where $keys$, $vals$, and $level$ are used to represent the key array, value array, and the level of the node that is currently examined in the context, i.e. $node'$.
+
+\begin{algorithm}[h]
+  \caption{Insert in $\text{B}^{\text{link}}$ Tree}\label{alg:blink-insert}
+  \begin{algorithmic}[1] % The number in square brackets specifies the line numbering
+    \Function {put}{k, v, t}
+    \State $root \gets \text{root}(t)$
+    \State $leaf, stack \gets \text{descendToLeaf}(k, root, [])$
+    \State insertLeaf($k, v, leaf, stack, root$)
+    \EndFunction
+
+    \Function {insertLeaf}{k, v, node, stack, root}
+    \State $node', i \gets \text{searchLeaf}(k, node', \text{true})$
+    \If {$i < \text{num}(keys)$ and $k = keys[i]$}
+    \State $vals[i] \gets v$
+    \State release write lock of $node'$
+    \Else
+    \State $k', v' \gets \text{insert k and v into the key and value array}$
+    \If {$k'$ and $v'$ are null}
+    \State increase the number of keys in the $node'$ by 1
+    \State release write lock of $node'$
+    \Else
+    \State $newNode, upKey \gets \text{splitLeaf}(node', k', v')$
+    \State release write lock of $node'$
+    \If {$stack$ is empty}
+    \If {level($root$) $ = level$}
+    \State $newRoot \gets \text{create a new inner node}$
+    \State put $upKey$, $node'$, and $newNode$ in $newRoot$
+    \State $root \gets newRoot$
+    \Else
+    \State redescend($upKey$, $newNode$, $level$, $root$)
+    \EndIf
+    \Else
+    \State $parent \gets \text{pop}(stack)$
+    \State insertInner($upKey$, $newNode$, $parent$, $stack$, $root$)
+    \EndIf
+    \EndIf
+    \EndIf
+    \EndFunction
+
+    \Function {insertInner}{k, n, node, stack, root}
+    \State same as insertLeaf, with the function of splitLeaf replaced by splitInner
+    \EndFunction
+
+    \Function {redescend}{k, n, toLevel, root}
+    \State $node, stack \gets \text{descendToLevel}(k, toLevel, root, [])$
+    \State insertInner($k$, $n$, $node$, $stack$, $root$)
+    \EndFunction
+
+    \Function {descendToLevel}{k, toLevel, node, stack}
+    \If {level($node$) $ = toLevel + 1$}
+    \State \Return $node$, $stack$
+    \Else
+    \State $child, stack' \gets \text{searchInner}(k, node, stack)$
+    \State \Return \text{descendToLevel}($k$, $toLevel$, $child$, $stack'$)
+    \EndIf
+    \EndFunction
+  \end{algorithmic}
+\end{algorithm}
+
+We mentioned before that unlike the original paper, for the rightmost node at each level, the high key is set to $+\infty$ instead of the actual largest key in this subtree. This makes splitting the rightmost leaf node easier. When the rightmost leaf is split, we can always safely set the high key of the new node to that of the old node, which is $+\infty$, regardless of if we have inserted a key that is greater than all existing keys. This makes spiltting the rightmost node consistent with splitting other nodes.
+
+We also mentioned that Lehman and Yao fail to discuss what must happen when the root node becomes full and must be split. When an inserter recurses up the tree, it is possible it has recursed up to the root but the root level has been split by other threads and a new root has been created. In this case the stack it made while descending does not help for finding the correct parents anymore. We adopt the solution from PostgreSQL. PostgreSQL has adpoted $\text{B}^{\text{link}}$ trees as base for its index structure. Their solution is that when this happens, we re-descending the tree until we reach the level one above the old root. Typically the re-descending only needs to examine one level of nodes, because in most cases, if the old root level has been split, there will be enough space for insertion and re-descending is not needed. It is rare that the root level is split and is quickly filled up again by other threads. In this case, the re-descending is needed. But it is highly unlikely that even the new root level is split and filled up.
+
+This locking scheme is efficient in that only a constant number of nodes are locked at any time. The original paper couples locks as part of moving right when relocating a child node's downlink during an ascent of the tree.  This is the only point where it has to simultaneously hold three locks (a lock on the child, the original parent, and the original parent's right sibling). However, in our implementation, an inserter nevers couples any locks, neither between the child and the parent, nor between siblings. This means that only one lock is held at any time. We will not give a rigorous proof of the correctness here but we argue that as long as we always obtain the correct pointer to follow from the current node when the current node is locked, and we always lock the node the pointer points to before accessing its fields, the implementation is correct.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

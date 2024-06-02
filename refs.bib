@@ -41,3 +41,23 @@
   pages   = {1-69},
   author  = {Yannis Smaragdakis and George Balatsouras}
 }
+
+@article{10.1145/319628.319663,
+  author     = {Lehman, Philip L. and Yao, s. Bing},
+  title      = {Efficient locking for concurrent operations on B-trees},
+  year       = {1981},
+  issue_date = {Dec. 1981},
+  publisher  = {Association for Computing Machinery},
+  address    = {New York, NY, USA},
+  volume     = {6},
+  number     = {4},
+  issn       = {0362-5915},
+  url        = {https://doi.org/10.1145/319628.319663},
+  doi        = {10.1145/319628.319663},
+  abstract   = {The B-tree and its variants have been found to be highly useful (both theoretically and in practice) for storing large amounts of information, especially on secondary storage devices. We examine the problem of overcoming the inherent difficulty of concurrent operations on such structures, using a practical storage model. A single additional “link” pointer in each node allows a process to easily recover from tree modifications performed by other concurrent processes. Our solution compares favorably with earlier solutions in that the locking scheme is simpler (no read-locks are used) and only a (small) constant number of nodes are locked by any update process at any given time. An informal correctness proof for our system is given.},
+  journal    = {ACM Trans. Database Syst.},
+  month      = {dec},
+  pages      = {650–670},
+  numpages   = {21},
+  keywords   = {multiway search trees, locking protocols, index organizations, database, data structures, correctness, consistencey, concurrency controls, concurrenct algorithms, B-tree}
+}
