@@ -26,6 +26,10 @@
 \setminted{fontsize=\footnotesize}
 \usepackage{tikz}
 \usepackage{float}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{caption}
+\usepackage{geometry}
 
 \theoremstyle{definition}
 \newtheorem{exmp}{Example}[chapter]
@@ -97,8 +101,8 @@ The rest of the thesis is organized as follows. In Chapter~\ref{ch:background}, 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\chapter{Background}
-\label{ch:background}
+\chapter{Datalog}
+\label{ch:datalog}
 
 \section{Datalog Syntax}
 
@@ -330,7 +334,7 @@ We will show one more example of a more complex Datalog program, where derived p
 \end{exmp}
 \label{exmp:point-to}
 
-\section{Adding Parallelism}
+\section{Parallelization}
 
 It is now clear that each statement translated from a rule can be executed in parallel. Consider Example \ref{exmp:point-to}; the two \textit{search} statements in the \textit{Eval-Rule-Incr} for the load rule can be executed in parallel. In fact, the assign rule will be translated into one statement, the load rule and the store rule will both be translated into two statements. All five statements can be executed in parallel. We mentioned in the previous chapter that there are two levels of parallelism in the semi-naïve evaluation algorithm. This nested parallelism is automatically spread out in the way the RAM program is constructed.
 
@@ -768,6 +772,44 @@ This locking scheme is efficient in that only a constant number of nodes are loc
 
 \chapter{Evaluation}
 \label{ch:evaluation}
+
+In this chapter, we answer the following five research questions:
+
+\begin{itemize}
+  \item[\textbf{RQ0}] Does our implementation of the trees satisfy the asymptotic bound?
+  \item[\textbf{RQ1}] Is insertion and range query in the B+ tree faster than in the built-in map that use red-black trees?
+  \item[\textbf{RQ2}] Is insertion and range query in the $\text{B}^{\text{link}}$ tree faster than in the B+ tree and red-blakc tree?
+  \item[\textbf{RQ3}] Is Datalog evaluation using B+ trees faster than using red-black trees?
+  \item[\textbf{RQ4}] Is Datalog evaluation using $\text{B}^{\text{link}}$ trees faster than using B+ trees and red-black trees?
+\end{itemize}
+
+To answer the question 0 and 1, we do the following experiment.
+
+\newpage
+\newgeometry{top=1in, bottom=1in, left=0.8in, right=0.8in}
+\begin{figure}[htbp]
+  \centering
+  \begin{minipage}[b]{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{asset/insert.png}
+    \captionsetup{width=0.9\textwidth}
+    \caption{Time of inserting 1 value in Red-Black Tree and B+Trees}
+    \label{fig:insert_BPlusTree}
+  \end{minipage}
+  \begin{minipage}[b]{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{asset/range_query.png}
+    \captionsetup{width=0.9\textwidth}
+    \caption{Time of range query in Red-Black Tree and B+Trees containing $2^{20}$ keys}
+    \label{fig:rq_BPlusTree}
+  \end{minipage}
+
+  \vspace{0.5cm}
+
+  % \caption{Overall caption for the figure}
+  % \label{fig:overall}
+\end{figure}
+\restoregeometry
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
