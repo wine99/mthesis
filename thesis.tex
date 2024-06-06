@@ -768,6 +768,9 @@ We also mentioned that Lehman and Yao fail to discuss what must happen when the 
 
 This locking scheme is efficient in that only a constant number of nodes are locked at any time. The original paper couples locks as part of moving right when relocating a child node's downlink during an ascent of the tree.  This is the only point where it has to simultaneously hold three locks (a lock on the child, the original parent, and the original parent's right sibling). However, in our implementation, an inserter nevers couples any locks, neither between the child and the parent, nor between siblings. This means that only one lock is held at any time. We will not give a rigorous proof of the correctness here but we argue that as long as we always obtain the correct pointer to follow from the current node when the current node is locked, and we always lock the node the pointer points to before accessing its fields, the implementation is correct.
 
+\section{Range Query}
+\label{sec:range-query}
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \chapter{Evaluation}
@@ -777,13 +780,27 @@ In this chapter, we answer the following five research questions:
 
 \begin{itemize}
   \item[\textbf{RQ0}] Does our implementation of the trees satisfy the asymptotic bound?
-  \item[\textbf{RQ1}] Is insertion and range query in the B+ tree faster than in the built-in map that use red-black trees?
-  \item[\textbf{RQ2}] Is insertion and range query in the $\text{B}^{\text{link}}$ tree faster than in the B+ tree and red-blakc tree?
+  \item[\textbf{RQ1}] Is insertion and range query in the B+ tree faster than in the built-in red-black trees?
+  \item[\textbf{RQ2}] Is insertion in the $\text{B}^{\text{link}}$ tree faster than in the B+ tree and red-blakc tree?
   \item[\textbf{RQ3}] Is Datalog evaluation using B+ trees faster than using red-black trees?
   \item[\textbf{RQ4}] Is Datalog evaluation using $\text{B}^{\text{link}}$ trees faster than using B+ trees and red-black trees?
 \end{itemize}
 
-To answer the question 0 and 1, we do the following experiment.
+The experiments are run a machine with 64 GB of memory and an Intel Core i5-13500 that has 14 threads.
+
+To answer the question 0 and 1, we do the following experiment. We create trees where the keys and values are integers. The value does not matter in the experiment so we set the value to be the same as the key. We then first propagate the tree with a certain number of keys that are generated randomly. We then measure the time of inserting another key-value pair into the tree. Because the time complexity of insertion in both B+ trees and red-black trees are $O(\log_2 n)$ when binary search is used in B+ trees, if we divide the time by $log_2 n$, we should expect a constant. Since measuring the time of inserting one key-value pair is not accurate, we insert 100 random key-value pairs and divide the time by 100. Because we propagate the tree to a size that is much greater than 100, dividing $100 \log_2 n$ is acceptable even though $n$ is changing.
+
+If not mentioned otherwise, the random number is generated under a fixed seed so that the same set of keys are generated for different trees. And we run the experiment 5 times and take the average time for the benchmark on trees.
+
+The result of insertion is shown in figure \ref{fig:insert_BPlusTree} where the size of the trees range from $2^{17}, 2^{18}, \cdots, 2^{21}$. We can see that both B+ trees and red-black trees satisfy the bound since all lines are almost flat. We can clearly see that insertion in B+ trees is faster than in red-black trees because in B+ trees, when comparing keys in a node, it is more likely that the key array is in the cache. The B+ tree with order 16 is obviously slower and the there is no significant difference between the B+ tree with order 32, 64 and 128. We mention that the built-in red-black trees in the flix standard library is an optimized and benchmarked implementation while our B+ trees is a simple and quick implementation.
+
+B+ trees are often used for database systems where the nodes are stored in a block in a disk so the size of the node is usually determined so that one node fits in one block, minimizing the number of I/O operations. In our case, the nodes are stored in memory and it is fine that a node does not fit in a cache line. Smaller nodes increases the tree height and traversal time but fits better in CPU caches, leading to potentially faster access times within each node. We expect that the B+ tree with a too small size of node will be slower since the L1 cache is usually large to hold a node so the height of the tree is more important. The result of insertion meet our expectation as the B+ tree with order 16 is slower than the other three.
+
+The result of range query is shown in figure \ref{fig:rq_BPlusTree}. We first propagate the tree with $2^{20}$ keys starting from 1 to $2^{20}$ but the order is randomly shuffled. We then measure the time of querying different ranges where the left bound is half of the size of tree, i.e. $2^{19}$, and the size of the range is $2^6$, $2^10$, $2^{14}$, $2^{18}$. We expect that range query on a small range in B+ trees is faster than red-black tree which is true in the experiment. However when the range becomes bigger, e.g. $1/4$ of the size of the tree, namely $2^{18}$, the B+ tree is slower than red-black tree. This is because, as we have seen in section \ref{sec:range-query}, the implementation of range query tries to find the first key that is greater than or equal to the left bound in each node using binary search. When the range is large, we need to do plenty of comparisons in each node to find the child to follow. But the values are only stored in leafs, so we have to traverse down to the leaf before we actually do any work. However in red-black trees, when traversing the inner nodes, if the key falls in the range, we can immediately run the given function on the value in the node.
+
+To answer the question 2, we propagate the trees to a certain size with random integers and measure the time. For $\text{B}^{\text{link}}$ trees, we use 14 threads which is the number of cores in the machine and the input is partitioned evenly among the threads. The result shows that the best $\text{B}^{\text{link}}$ tree is on average 3 times faster than the best B+ tree which is again 3 times faster than the red-black tree. $\text{B}^{\text{link}}$ with order 32 is the best in the experiment and 64 also comes very close. If the nodes are too small, the height of tree is too large and nodes are split more often, leading to more locks and more time. If the nodes are too large, the time it takes to examine a node and do insertion on a node becomes longer and locks are more likely to compete with each other. We have also tested different combinations of the number of threads and the order of the tree and the result is consistent -- using threads equal to the number of cores and the order of 32 and 64 are the best.
+
+We did not test the range query of the $\text{B}^{\text{link}}$ tree because it is implemented in the same way as the B+ tree with locks acquired if other threads are modifying the node and there is no parallelism available for a range query.
 
 \newpage
 \newgeometry{top=1in, bottom=1in, left=0.8in, right=0.8in}
@@ -806,6 +823,13 @@ To answer the question 0 and 1, we do the following experiment.
 
   \vspace{0.5cm}
 
+  \begin{minipage}[b]{0.49\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{asset/insert2.png}
+    \captionsetup{width=0.9\textwidth}
+    \caption{Time of propagating diefferent trees}
+    \label{fig:insert_blink}
+  \end{minipage}
   % \caption{Overall caption for the figure}
   % \label{fig:overall}
 \end{figure}
