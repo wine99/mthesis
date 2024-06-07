@@ -1,4 +1,4 @@
-\documentclass[twoside,11pt,openright]{report}
+\documentclass[twoside,11pt]{report}
 
 \usepackage[utf8x]{inputenc}
 \usepackage[american]{babel}
@@ -30,6 +30,15 @@
 \usepackage{subcaption}
 \usepackage{caption}
 \usepackage{geometry}
+
+% Define a custom float style without the box lines
+\floatstyle{plain}
+\newfloat{listing}{H}{lop}
+\floatname{listing}{Listing}
+
+% Remove caption separator line
+\DeclareCaptionFormat{myformat}{#1#2#3}
+\captionsetup[listing]{format=myformat}
 
 \theoremstyle{definition}
 \newtheorem{exmp}{Example}[chapter]
@@ -97,7 +106,7 @@ The Datalog engine in Flix is implemented as a library using semi-naïve evaluat
 
 The goal of this thesis is to improve the performance of the Datalog engine in Flix. The main contribution of this thesis is the parallelization of the evaluation, which includes three parts: (1) a benchmark suite is proposed for evaluating the performance of the engine, (2) a new parallel statement is added to RAM, and (3) a concurrent data structure is implemented to enable the interpretation of the parallel statement. Specifically, a concurrent B+-tree is implemented to replace the Red-black tree used in the current implementation. The thesis statement is as follows: A concurrent B+-tree would make Datalog evaluation in Flix more efficient.
 
-The rest of the thesis is organized as follows. In Chapter~\ref{ch:background}, we give a brief introduction to Datalog, including the syntax and semantics of the language, as well as the semi-naïve evaluation and how it leads to parallelism. In Chapter~\ref{ch:datalog_evaluation}, we first look at how the semi-naïve algorithm is implemented in Flix, specifically how the RAM program is constructed and interpreted. We then examine how parallelism can be introduced. Lastly, we discuss the benchmark suite. In Chapter~\ref{ch:btrees}, we look at the concurrent B+-tree implementation. In Chapter~\ref{ch:evaluation}, we evaluate the performance of the new implementation.
+The rest of the thesis is organized as follows. In Chapter~\ref{ch:datalog}, we give a brief introduction to Datalog, including the syntax and semantics of the language, as well as the semi-naïve evaluation and how it leads to parallelism. In Chapter~\ref{ch:datalog_evaluation}, we first look at how the semi-naïve algorithm is implemented in Flix, specifically how the RAM program is constructed and interpreted. We then examine how parallelism can be introduced. Lastly, we discuss the benchmark suite. In Chapter~\ref{ch:btrees}, we look at the concurrent B+ tree implementation that enables the parallelism. In Chapter~\ref{ch:evaluation}, we evaluate the performance of the trees we implement and the engine using these trees.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -231,7 +240,7 @@ We can now define the \textit{semi-naïve evaluation} as shown in Algorithm \ref
 
 It is obvious that the semi-naïve evaluation is parallelizable. There are two levels of parallelism in Algorithm \ref{alg:semi-naive-eval}. First, each invocation of \textit{Eval-Rule-Incr} can be done in parallel, that is, the body of the loop from line 9 to line 12. Second, as per the definition of \textit{Eval-Rule-Incr}, the invocations of \textit{Eval-Rule} called by \textit{Eval-Rule-Incr} can also be done in parallel. This is the main idea of the parallelization of this thesis. Also, the body of the loop from line 1 to line 4 can be done in parallel.
 
-\section{Datalog Extensions and Datalog in Flix}
+% \section{Datalog Extensions and Datalog in Flix}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -400,6 +409,7 @@ Binary search trees are used to store ordered data. In our case, the data is the
 A range query is a query that retrieves data in a given range. In our case, the keys are tuples, and they are sorted first by the first element, then by the second element, and so on. As we have illustrated in Example \ref{exmp:tc-ram}, the \texttt{query} statement is always of the form \texttt{x[0]==a, x[1]==b, x[2]==c, ...}. When we are doing a range query, if at the current node, the first element of the key is less than \texttt{a}, or if the first element of the key is equal to \texttt{a} but the second element of the key is less than \texttt{b}, we can skip the left child of the current node, and so on. Likewise, we can skip the right child for some node. Only when the equality is met for all the elements in the query condition, we will visit both the left child and the right child.
 
 \section{Benchmark}
+\label{sec:benchmark}
 
 We have implemented a small benchmark suite that contains four files, 13 programs in total, to evaluate the performance of the Datalog engine in Flix.
 \begin{itemize}
@@ -438,6 +448,7 @@ We have discussed in previous sections that the tuples of a relation are stored 
 The B-tree and its variants are widely used and studied in database systems. Many papers have described how to perform concurrent operations on B-trees. In this section, we will give a brief introduction to B-trees and B+ trees, and then we will introduce a new variant of B-trees called $\text{B}^{\text{link}}$ trees that support concurrent reading and writing. In the next chapter, we will evaluate the performance of the Datalog engine using B+ trees and $\text{B}^{\text{link}}$ trees.
 
 \section{B-Trees and B+ Trees}
+\label{sec:btrees}
 
 The B-tree is a multi-way search tree. A $m$-way search tree is a tree where each node has at most $m$ children, hence storing at most $m-1$ keys. The keys in a node are sorted, and the keys in the children of a node are in the range defined by the keys of the node.
 
@@ -565,7 +576,7 @@ The insertion function then checks if the key already exists in the leaf node, i
 
 \section{$\text{B}^{\text{link}}$ Trees}
 
-There are many variants of B-trees that are designed to support concurrent reading and writing. In thisp roject, we mainly studied the $\text{B}^{\text{link}}$ tree proposed by Lehman and Yao \cite{10.1145/319628.319663}.
+There are many variants of B-trees that are designed to support concurrent reading and writing. In thisp roject, we mainly studied the $\text{B}^{\text{link}}$ tree proposed by Lehman and Yao \cite{10.1145/319628.319663}. We pick this work because it appears implementable in Flix and it suits our need well. It foucses on concurrent reading and insertion while deletion is poorly supported -- and we do not need deletion in our case. Although this work is old, it is a classic work in the topic and there are some programs in the real world that use $\text{B}^{\text{link}}$ trees as the underlying data structure, with some improvements, e.g. PostgreSQL.
 
 The idea of the $\text{B}^{\text{link}}$ is to add another key-pointer pair to each inner node and an additional key to each leaf node. The structure of a node in a $\text{B}^{\text{link}}$ tree is shown in figure \ref{fig:blink_node}. The additional key is called the \textit{high key}, i.e., the largest key in the subtree rooted at that node. For an inner node, the high key is the highest key in the subtree pointed by $P_m$. For a leaf node, the high key is the key is the same as $K_m$. The additional pointer is called \textit{link} and it points to the right sibling. The node on every level is now linked together, hence the name $\text{B}^{\text{link}}$ tree. Note this change still satisfy the sorted property of a node, that is, all keys in the subtree pointed by $P_m$ are greater than $K_m$ and less than or equal to the high key $K_{m+1}$.
 
@@ -619,7 +630,8 @@ Figure \ref{fig:blink_tree} from Lehman and Yao shows an example of a $\text{B}^
 \end{figure}
 
 The type definition of the $\text{B}^{\text{link}}$ tree in Flix is as follows:
-\begin{minted}{text}
+\begin{listing}[H]
+  \begin{minted}{text}
 enum BLinkTree[k: Type, v: Type, r: Region](Region[r], Ref[Node[k, v, r], r])
 enum Node[k: Type, v: Type, r: Region] {
     case Inner(Int32, Ref[Int32, r], Array[k, r], Array[Node[k, v, r], r],
@@ -629,6 +641,7 @@ enum Node[k: Type, v: Type, r: Region] {
     case Empty
 }
 \end{minted}
+\end{listing}
 
 The node structure is similar to that of the B+ tree, with the addition of the high key, stored in the last element of the key array, the link, and the lock. The original paper uses a simple mutex lock because in their setting, a node is stored as a block in the disk. Reading a block is an atomic operation so there is no locking involved in the \texttt{get} method. It is only when then intension of reading the block is to update it that the lock is acquired. In our setting, we need to read-write locks because the nodes are stored in memory and when reading the fields in a node, we need to make sure that these fileds are not being modified at the same time by another thread. The extra ineteger represent the level of the node in the tree. Leaf nodes are at level 0, and the level increases as we go up the tree. Once a node is created, the level is fixed and will not change. Level is needed here to deal with the case that Lehman and Yao did not discuss, that is, when the root node is concurrently split by other threads. We will discuss this in section \ref{sec:blink-insert}.
 
@@ -771,6 +784,10 @@ This locking scheme is efficient in that only a constant number of nodes are loc
 \section{Range Query}
 \label{sec:range-query}
 
+The implementation of range query in B+ trees and $\text{B}^{\text{link}}$ trees is similar. We find the first key that is greater than or equal to the left bound of the range in the inner node, with moving to the right involved in $\text{B}^{\text{link}}$ tree, and then traverse down the tree to the leaf node. This is exactly the same as in searches and insertions. The \texttt{forAll} function simply follow the leftmost child in each node and traverse the leaf level all the way to the rightmost leaf node.
+
+In $\text{B}^{\text{link}}$ trees, we always lock the read lock when we are reading the fields in both inner nodes and leaf nodes. This enables threads doing queries or iterations to not block other threads from reading or writing the tree. Dead-locks could occur if in the query or iteration tries to modify the tree. Programmers using these two functions should be aware of this and avoid modifying the tree in the query or iteration.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \chapter{Evaluation}
@@ -798,9 +815,24 @@ B+ trees are often used for database systems where the nodes are stored in a blo
 
 The result of range query is shown in figure \ref{fig:rq_BPlusTree}. We first propagate the tree with $2^{20}$ keys starting from 1 to $2^{20}$ but the order is randomly shuffled. We then measure the time of querying different ranges where the left bound is half of the size of tree, i.e. $2^{19}$, and the size of the range is $2^6$, $2^10$, $2^{14}$, $2^{18}$. We expect that range query on a small range in B+ trees is faster than red-black tree which is true in the experiment. However when the range becomes bigger, e.g. $1/4$ of the size of the tree, namely $2^{18}$, the B+ tree is slower than red-black tree. This is because, as we have seen in section \ref{sec:range-query}, the implementation of range query tries to find the first key that is greater than or equal to the left bound in each node using binary search. When the range is large, we need to do plenty of comparisons in each node to find the child to follow. But the values are only stored in leafs, so we have to traverse down to the leaf before we actually do any work. However in red-black trees, when traversing the inner nodes, if the key falls in the range, we can immediately run the given function on the value in the node.
 
-To answer the question 2, we propagate the trees to a certain size with random integers and measure the time. For $\text{B}^{\text{link}}$ trees, we use 14 threads which is the number of cores in the machine and the input is partitioned evenly among the threads. The result shows that the best $\text{B}^{\text{link}}$ tree is on average 3 times faster than the best B+ tree which is again 3 times faster than the red-black tree. $\text{B}^{\text{link}}$ with order 32 is the best in the experiment and 64 also comes very close. If the nodes are too small, the height of tree is too large and nodes are split more often, leading to more locks and more time. If the nodes are too large, the time it takes to examine a node and do insertion on a node becomes longer and locks are more likely to compete with each other. We have also tested different combinations of the number of threads and the order of the tree and the result is consistent -- using threads equal to the number of cores and the order of 32 and 64 are the best.
+To answer the question 2, we propagate the trees to a certain size with random integers and measure the time. For $\text{B}^{\text{link}}$ trees, we use 14 threads which is the number of cores in the machine and the input is partitioned evenly among the threads. The result in \ref{fig:insert_blink} shows that the best $\text{B}^{\text{link}}$ tree is on average 3 times faster than the best B+ tree which is again 3 times faster than the red-black tree. $\text{B}^{\text{link}}$ with order 32 is the best in the experiment and 64 also comes very close. If the nodes are too small, the height of tree is too large and nodes are split more often, leading to more locks and more time. If the nodes are too large, the time it takes to examine a node and do insertion on a node becomes longer and locks are more likely to compete with each other. We have also tested different combinations of the number of threads and the order of the tree and the result is consistent -- using threads equal to the number of cores and the order of 32 and 64 are the best.
 
 We did not test the range query of the $\text{B}^{\text{link}}$ tree because it is implemented in the same way as the B+ tree with locks acquired if other threads are modifying the node and there is no parallelism available for a range query.
+
+To answer the question 3 and 4, we run the benchmark with four different implementation of the engine. The baseline is the built-in engine in Flix release 0.46.0 that uses red-black trees. Because Flix is functional-first language that adopts the concept of regions to seperate pure and impure code as we have mentioned in section \ref{sec:btrees}. The definition of Datalog programs, including the rules (constraints) and the results (models) is defined as follow:
+\begin{minted}{text}
+    pub enum Datalog[v] {
+        case Datalog(Vector[Constraint[v]], Vector[Constraint[v]])
+        case Model(Map[RamSym[v], Map[Vector[v], v]])
+        case Join(Datalog[v], Datalog[v])
+    }
+\end{minted}
+
+If we use a mutable data structure in the engine, after the evaluation of the whole Datalog program, we need to copy the results back to into an immutable map. We can not simply change \texttt{Map} to \texttt{BLinkTree} because it will introduce a region variable \texttt{r} in the type, i.e. \texttt{Datalog[v, r]}. Therefore, for fair comparisons for the B+ tree and $\text{B}^{\text{link}}$ tree, we add another engine where the only difference between the built-in engine is that we add an extra copy of the results after evaluation. The results are shown in figure \ref{fig:benchmark}.
+
+Compared to the baseline, the B+ tree engine is on average slightly slower than the baseline, partly due to the copying. If we compare it with the baseline with copying, the B+ tree engine is almost always faster, although just merely. The $\text{B}^{\text{link}}$ tree engine is significantly faster than the baseline and the B+ tree engine. On the four realistic programs in the \texttt{Closure.flix} and the first points-to analysis in the \texttt{PointsTo.flix}, the $\text{B}^{\text{link}}$ tree engine is 1.2x to 2.2x faster than the baseline, depending on the number of rules in the program and how rule looks like. Usually, we gain more from parallelism if there are more rules. For example, on the program \texttt{propagate3}, which we illustrated in section \ref{sec:benchmark}, the $\text{B}^{\text{link}}$ tree engine is 5x faster than the baseline.
+
+The only exception where both $\text{B}^{\text{link}}$ tree engine and the B+ tree engine are slower than the baseline is the program \texttt{points2}. The difference between this \texttt{points2} and \texttt{points1} is that two atoms in the body of the load rule are swapped, causing a range query statement falls back to a search-and-if statement in the compiled RAM code. The reason why the $\text{B}^{\text{link}}$ tree engine is slower than the baseline is not clear.
 
 \newpage
 \newgeometry{top=1in, bottom=1in, left=0.8in, right=0.8in}
@@ -830,6 +862,16 @@ We did not test the range query of the $\text{B}^{\text{link}}$ tree because it 
     \caption{Time of propagating diefferent trees}
     \label{fig:insert_blink}
   \end{minipage}
+
+  \vspace{0.5cm}
+
+  \begin{minipage}[b]{0.96\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{asset/benchmark.png}
+    \captionsetup{width=\textwidth}
+    \caption{Benchmark of engines using different trees}
+    \label{fig:benchmark}
+  \end{minipage}
   % \caption{Overall caption for the figure}
   % \label{fig:overall}
 \end{figure}
@@ -839,6 +881,57 @@ We did not test the range query of the $\text{B}^{\text{link}}$ tree because it 
 
 \chapter{Future Work}
 \label{ch:future_work}
+
+\section{Optimizing the $\text{B}^{\text{link}}$ Tree}
+
+The implementation of the $\text{B}^{\text{link}}$ tree is a quick implementation. There are possibly many optimizations that can be done with respect to both the algorithm and the code. For example, there are different ways to implement the range query. The current implementation is to find the first key that is greater than or equal to the left bound in each level of the tree. This is not optimal because in the inner nodes, we will do plenty of comparisons of keys that are in the range which will be revisited again in the leaf level if the range is large. Since we have high keys in $\text{B}^{\text{link}}$ trees, we can instead find the node whose high key is the first one that is greater than or equal to the left bound in each level. Only after we have reached the correct leaf node, we will start to examine the key array.
+
+\section{Index Selection and Rule Rewriting}
+
+We can also consider optimizations at the source level. For example, the benchmark \texttt{points1} contains the rules in example \ref{exmp:point-to}. We have seen that the load rule will produce two range queries. However, programmers are probably not aware the underlying implementation of the engine and they might write a load rule where the second and the third atom in the body are swapped. If then, the second atom will be compiled to a search statement as follows:
+
+\begin{minted}[escapeinside=||]{text}
+        search 0$ |$\in$| Load do
+            search 1$ |$\in$| ΔPointsTo do
+                if((0$[0], 1$[1]) |$\notin$| PointsTo) then
+                    query {2$ |$\in$| PointsTo |$\textbar$| 2$[0] == 0$[1] |$\wedge$| 2$[1] == 1$[0]} do
+                        project (0$[0], 1$[1]) into ΔPointsTo'
+                    end
+                end
+            end
+        end;
+        search 0$ |$\in$| Load do
+            search 1$ |$\in$| PointsTo do
+                if((0$[0], 1$[1]) |$\notin$| PointsTo) then
+                    query {2$ |$\in$| ΔPointsTo |$\textbar$| 2$[0] == 0$[1] |$\wedge$| 2$[1] == 1$[0]} do
+                        project (0$[0], 1$[1]) into ΔPointsTo'
+                    end
+                end
+            end
+        end;
+\end{minted}
+
+We can add an analyzing phase in the compiler to reorder the atoms in the rules so that range queries are used as much as possible.
+
+We can also analyze the program to determine which index is the best for each relation, that is, what order of the elements in the tuple is the best when the tuple is stored in a sorted tree data structure. For example, the benchmark \texttt{intersect3} contains rules similar to the following:
+
+\begin{minted}{text}
+            A(1 , i) :- Check(a, b, c), In(i, a, b, c).
+            A(2 , i) :- Check(a, _, c), In(i, a, _, c).
+            A(3 , i) :- Check(a, _, _), In(i, a, _, _).
+            A(4 , i) :- Check(a, b, _), In(i, a, b, _).
+            A(5 , i) :- Check(a, b, c), In(i, a, b, c).
+\end{minted}
+
+where the EDB is \texttt{Check} and \texttt{In} and the IDB is \texttt{A}. The current implementation will compile all five rules to be search statements. But if we analyze the program, we can actually store the tuples of the \texttt{In} relation as \texttt{(a, b, c, i)}. Then these rules can be translated into range queries.
+
+Multiple indices can be created for the same relation. This means that for one relation, we can have multiple trees that store the tuples in different orders of the elements. Although performance can substantially improve, the memory footprint can become very large.
+
+Index selection is studied and implemented by some other Datalog engines. For example, Souffle, A Datalog Synthesis Tool for Static Analysis, uses a strategy to automatically constructs an appropriate set of indices \cite{10.14778/3282495.3282500}.
+
+\section{Parallelism through Data Paritioning}
+
+Another direction of parallelism is to partition the tuples of the relations and let different threads do the evaluation of the rules on different partitions. This parallelism is probably more promising in that the level of parallelism is not limited by the number of rules in the program or by the skewed wordload of the rules. But data partitioning is also difficult because we want such a partition that the workload of each thread is balanced and the communication between threads is minimized. Communication here means that the threads probably need to exchange their newly found facts in the IDB with other thread based on the paritioning strategy. A rich line of research on partitioning strategies for Datalog exists since the 1990s. The monograph Modern Datalog Engines \cite{DBS-073} has listed a good resource of literature and Datalog engines on this topic.
 
 \chapter{Conclusion}
 \label{ch:conclusion}
@@ -854,10 +947,10 @@ We did not test the range query of the $\text{B}^{\text{link}}$ tree because it 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\cleardoublepage
-\appendix
-\chapter{The Technical Details}
+% \cleardoublepage
+% \appendix
+% \chapter{The Technical Details}
 
-\todo{\dots}
+% \todo{\dots}
 
 \end{document}
