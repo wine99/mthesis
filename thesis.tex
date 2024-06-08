@@ -1,4 +1,4 @@
-\documentclass[twoside,11pt]{report}
+\documentclass[11pt]{report}
 
 \usepackage[utf8x]{inputenc}
 \usepackage[american]{babel}
@@ -100,13 +100,13 @@
 
 Datalog is a simple yet powerful declarative logic programming language. Programs written in a logic programming language are collections of logical statements and rules. This allows the programmer to solve problems by stating facts and rules about the problem domain rather than by giving step-by-step algorithmic instructions.
 
-The Flix programming language is a new functional, declarative, and strongly typed programming language on the JVM. One of its main features is the first-class support for Datalog, allowing programmers to write Datalog programs directly in Flix.
+The Flix programming language is a new functional, declarative, and strongly typed programming language on the JVM. One of its main features is the first-class support for Datalog, allowing programmers to write and compose Datalog programs directly in Flix.
 
-The Datalog engine in Flix is implemented as a library using semi-naïve evaluation as its evaluation strategy, as most modern Datalog engines do. The Datalog engine in Flix has two parts: it compiles the given Datalog program into an intermediate representation, RAM (Relational Algebra Machine), represented as Flix values, and then it interprets the RAM program statement by statement. The semi-naïve evaluation is reflected in the way the RAM program is constructed. The generated RAM program is highly parallelizable, but it requires a concurrent data structure.
+The Datalog engine in Flix is not fully optimized at this stage. It is implemented as a library using the semi-na\"ive evaluation, as most modern Datalog engines do. The engine has two parts: it first compiles the given Datalog program into an intermediate representation, RAM (Relational Algebra Machine), represented as Flix values, and then interprets the RAM program statement by statement. The semi-na\"ive evaluation is reflected in the way the RAM program is constructed. The generated RAM program is highly parallelizable, but it requires a concurrent data structure.
 
-The goal of this thesis is to improve the performance of the Datalog engine in Flix. The main contribution of this thesis is the parallelization of the evaluation, which includes three parts: (1) a benchmark suite is proposed for evaluating the performance of the engine, (2) a new parallel statement is added to RAM, and (3) a concurrent data structure is implemented to enable the interpretation of the parallel statement. Specifically, a concurrent B+-tree is implemented to replace the Red-black tree used in the current implementation. The thesis statement is as follows: A concurrent B+-tree would make Datalog evaluation in Flix more efficient.
+The goal of this thesis is to improve the performance of the Datalog engine in Flix. The main contribution of this thesis is the parallelization of the evaluation, which includes three parts: (1) a benchmark suite is proposed for evaluating the performance of the engine, (2) a new parallel statement is added to RAM, and (3) a concurrent data structure is implemented to enable the interpretation of the parallel statement. Specifically, a concurrent B+ tree is implemented to replace the red-black tree used in the current implementation. The thesis statement is as follows: A concurrent B+-tree would make Datalog evaluation in Flix more efficient.
 
-The rest of the thesis is organized as follows. In Chapter~\ref{ch:datalog}, we give a brief introduction to Datalog, including the syntax and semantics of the language, as well as the semi-naïve evaluation and how it leads to parallelism. In Chapter~\ref{ch:datalog_evaluation}, we first look at how the semi-naïve algorithm is implemented in Flix, specifically how the RAM program is constructed and interpreted. We then examine how parallelism can be introduced. Lastly, we discuss the benchmark suite. In Chapter~\ref{ch:btrees}, we look at the concurrent B+ tree implementation that enables the parallelism. In Chapter~\ref{ch:evaluation}, we evaluate the performance of the trees we implement and the engine using these trees.
+The rest of the thesis is organized as follows. In Chapter~\ref{ch:datalog}, we give a brief introduction to Datalog, including the syntax and semantics of the language, as well as the semi-naïve evaluation and how it leads to parallelism. In Chapter~\ref{ch:datalog_evaluation}, we first look at how the semi-naïve algorithm is implemented in Flix, specifically how the RAM program is constructed and interpreted. We then exaplain how parallelism can be introduced. Lastly, we brief show the benchmark suite. In Chapter~\ref{ch:btrees}, we first introduce B-trees and B+ trees and how a concurrent B+ tree is achieved. In Chapter~\ref{ch:evaluation}, we evaluate the performance of the trees we implement and the engine using these trees.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -240,7 +240,95 @@ We can now define the \textit{semi-naïve evaluation} as shown in Algorithm \ref
 
 It is obvious that the semi-naïve evaluation is parallelizable. There are two levels of parallelism in Algorithm \ref{alg:semi-naive-eval}. First, each invocation of \textit{Eval-Rule-Incr} can be done in parallel, that is, the body of the loop from line 9 to line 12. Second, as per the definition of \textit{Eval-Rule-Incr}, the invocations of \textit{Eval-Rule} called by \textit{Eval-Rule-Incr} can also be done in parallel. This is the main idea of the parallelization of this thesis. Also, the body of the loop from line 1 to line 4 can be done in parallel.
 
-% \section{Datalog Extensions and Datalog in Flix}
+\section{Datalog Extensions and Datalog in Flix}
+
+Notable extensions to Datalog include negation, aggregation, and functions.
+
+The core fragment of Datalog cannot express non-monotone properties \cite{AFRATI1995177}. To achieve this expressibility, we need to extend the core Datalog with \textit{negation}.
+
+\begin{exmp}
+  The following Datalog program computes the set of pairs $(x, y)$ for which there is no path from $x$ to $y$ using negation:
+
+  \begin{minted}{text}
+    Path(x, y) :- Edge(x, y).
+    Path(x, z) :- Path(x, y), Edge(y, z).
+    Unconnected(x, y) :- Vertex(x), Vertex(y), not Path(x, y).
+  \end{minted}
+\end{exmp}
+
+Negations introduce non-monotonicity, which means we might lose the property that every Datalog program terminates and has a unique minimal solution. Almost all Datalog engines support negation through the use of \texttt{stratified negation}. Informally, programs are not allowed to recurse through negation. In stratified Datalog, a program $P$ is viewed as a sequence of programs $P_1, \ldots, P_n$ where the IDB of $P_i$ becomes the EDB of $P_{i+1}$. If a predicate $A$ is computed using negation of another predicate $B$, then $B$ must be computed in a previous stratum. In the above example, the first stratum consists of the first two rules (computing the IDB \texttt{Path}), and the second stratum consists of the third rule.
+
+Aggregates are an important feature of query languages, e.g. SQL, that allow us to summarize a large amount of data into a single value. In Datalog, an aggregate rule has the following form:
+$$R(x_1, \ldots, x_n, F(x_0)) :- S(x_1, \ldots, x_n, x_0).$$
+Here $F$ an aggregate function, for instance \texttt{count}, \texttt{sum}, \texttt{min}, \texttt{max}, etc, and $S(x_1, \ldots, x_n, x_0)$ is some rule body mentioning at least all variables of the head.
+
+\begin{exmp}
+  The following Datalog program computes the component representive of each vertex in a graph (the rule for computing \texttt{Connected} is ommitted for brevity):
+
+  \begin{minted}{text}
+    ComponentRep(x, min(y)) :- Connected(x, y).
+  \end{minted}
+\end{exmp}
+
+In order to guarantee the existence of a minimal model of every Datalog program, several complex conditions must hold. One approach is to insist that the domains over which we are aggregating are complete lattices and that the program is in a sense monotonic \cite{ROSS199779}. Intuitively, this means that adding more elements to the multi-set being operated upon can only increase (or decrease) the value of the aggregate.
+
+Flix adpots this approach to aggregation. In Flix, we call such rules \textit{constraints on lattices}, as opposed to \textit{constraints on relations}. To create such constraints, we have to define the lattice operations (the partial order, the least upper bound, and so on) as functions and associate them with a type. The aggregate, or latticenal value, is placed as the last atom in the head of the rule, and seperated with other atoms by a semicolon, instead of a comma.
+
+The addition of functions is also necessary for better expressivity (e.g., string transformations, list operations). Arithmetic operations can also be seen as functions. The guarantee of termination and finiteness is lost and become a responsibility of the programmer with the existence of functions. For example, this simple rule does not terminate:
+\begin{minted}{text}
+  A(x + 1) :- A(x).
+\end{minted}
+
+In Flix, we can make sure the program terminate by adding a guard in the body where the guard can any boolean expression or a function application that returns a boolean:
+\begin{minted}{text}
+  A(x + 1) :- A(x), if x < 6.
+\end{minted}
+
+We now demonstrate how Flix supports Datalog by an example.
+
+\begin{exmp}
+  The following Flix program computes the connected components of a graph:
+  \begin{minted}[escapeinside=||]{text}
+def componentRep(g: Graph[node]): #{ ComponentRep(node, node) |$\textbar$| r } with Order[node] =
+    let nodes = inject g.nodes into Node;
+    let edges = inject g.edges into Edge;
+    let reachability = #{
+        Reachable(n, n) :- Node(n).
+        Reachable(n1, n2) :- Edge(n1, n2).
+        Reachable(n1, n2) :- Edge(n2, n1).
+        Reachable(n1, n2) :- Reachable(n1, m), Reachable(m, n2).
+        ReachUp(n1) :- Reachable(n1, n2), if n1 < n2.
+        ComponentRep(n, rep) :- Reachable(n, rep), not ReachUp(rep).
+    };
+    solve nodes, edges, reachability project ComponentRep
+
+def connectGraph(g: Graph[node]): #{ Edge(Set[node], Set[node]) |$\textbar$| r } with Order[node] =
+    let missingEdges = #{
+        Component(rep; Set#{n}) :- ComponentRep(n, rep).
+        Edge(c1, c2) :- fix Component(_; c1), fix Component(_; c2), if c1 < c2.
+    };
+    solve componentRep(g), missingEdges project Edge
+
+def main(): Unit \ IO =
+    let graph = {
+        nodes = Set.range(0, 8),
+        edges = Set#{(0, 4), (0, 7), (2, 3), (1, 6), (5, 6)}
+    };
+    let connectedGraph = connectGraph(graph);
+    let result = query connectedGraph select (c1, c2) from Edge(c1, c2);
+    println("${result}")
+\end{minted}
+
+  The first thing to notice is the first-class support for Datalog constraints. In Flix, Datalog contraints, or Datalog programs, are first-class values. For example, the function \texttt{componentRep} returns a Datalog program containing the relation \texttt{ComponentRep}. The ``\texttt{| r}'' in the type means that it could contain more relations. This makes this returned Datalog program can be joined with other constraints, e.g. last line in \texttt{connectGraph}, and type check will succeed.
+
+  Secondly, in Flix, we can project any \texttt{Foldable} data structure containing the correct type of tuples into and from a relation. Here we project two set of tuples into the \texttt{Node} and the \texttt{Edge} relations and the query result of the Datalog constraints, i.e. the variable \texttt{result}, is a vector of tuples of two sets of nodes, or, the vector of edges between every pair of components.
+
+  Negation is used in the function \texttt{componentRep} and aggregation is used in the function \texttt{connectGraph}. The \texttt{Set} type in the Flix standard library has implemented the lattice operations so it can be used directly as an aggregate. The least upper bound operation on sets is the union operation. Therefore, in this example, the relation \texttt{ComponentRep} contains these three facts \texttt{(1, 1) (5, 1) (6, 1)}, and we can deduce \texttt{Comment(1; \{1, 5, 6\})} from it. The \texttt{fix} keyword is used to explicitly introduce a stratification.
+
+\end{exmp}
+\label{exmp:flix-program}
+
+Flix has some other features for Datalog that we have not mentioned here, such as \textit{functional predicates}. For more details, we refer to the Flix documentation.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -936,7 +1024,9 @@ Another direction of parallelism is to partition the tuples of the relations and
 \chapter{Conclusion}
 \label{ch:conclusion}
 
-\todo{Conclude on the problem statement from the introduction}
+\todo{summarize the text}
+\todo{summarize the evaluation and Conclude on the problem statement from the introduction}
+\todo{describe lessons learned: Flix, Datalog, Concurrent B+Trees}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -947,10 +1037,10 @@ Another direction of parallelism is to partition the tuples of the relations and
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-% \cleardoublepage
-% \appendix
-% \chapter{The Technical Details}
+\cleardoublepage
+\appendix
+\chapter{The Technical Details}
 
-% \todo{\dots}
+The implementation of the Datalog engine using B+ tree and $\text{B}^{\text{link}}$ tree can be found in the repository \href{https://github.com/wine99/flix-datalog-engine/tree/blinktree}{flix-datalog-engine} and benchmark sutie can be found in the repository \href{https://github.com/wine99/flix-datalog-benchmark}{flix-datalog-benchmark}.
 
 \end{document}
