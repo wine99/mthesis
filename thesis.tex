@@ -70,7 +70,9 @@
 \chapter*{Abstract}
 \addcontentsline{toc}{chapter}{Abstract}
 
-% \lipsum[1] % Placeholder for the abstract text.
+Datalog is a simple yet powerful declarative logic programming language. It allows programmers to solve problems by stating facts and rules about the problem domain rather than writing algorithmic instructions. Flix is a new functional, imperative, and logic programming language, featuring first-class support for Datalog, enabling programmers to write and compose Datalog programs directly in Flix.\\
+This thesis focuses on optimizing the Datalog engine in Flix by introducing parallelism and implementing a concurrent B+ tree, specifically the $\text{B}^{\text{link}}$ tree. Our aim was to enhance the performance of Datalog evaluation by replacing the current red-black tree with the $\text{B}^{\text{link}}$ tree, which supports concurrent operations.\\
+The evaluation shows significant performance improvements with the $\text{B}^{\text{link}}$ tree engine, achieving up to 5x faster execution in some benchmarks and an average improvement of more than 2x. These results demonstrate the effectiveness of parallelism and advanced data structures in optimizing Datalog evaluation, laying a solid foundation for future improvements.
 
 % \chapter*{Resumé}
 % \addcontentsline{toc}{chapter}{Resumé}
@@ -80,7 +82,8 @@
 \chapter*{Acknowledgments}
 \addcontentsline{toc}{chapter}{Acknowledgments}
 
-\todo{Write acknowledgments here\dots}
+I would like to thank my advisor, Magnus Madsen, for his excellent guidance and feedback throughout this project and for being a great teacher in both this and a previous course. His advice on both theoretical and engineering aspects has been of great value.\\
+I am also grateful to my family for their unwavering support in allowing me to study abroad. My two years of study and life in Aarhus have been simple, joyful, and fulfilling.
 
 \vspace{2ex}
 \begin{flushright}
@@ -127,8 +130,8 @@ A Datalog program consists of \textit{facts}, which are statements that are held
   \end{minted}
   Below are two rules to compute the transitive closure of a graph stored by means of \texttt{Edge} facts:
   \begin{minted}{text}
-    Path(X, Y) :- Edge(X, Y).
-    Path(X, Y) :- Edge(X, Z), Path(Z, Y).
+    Path(x, y) :- Edge(x, y).
+    Path(x, y) :- Edge(x, z), Path(z, y).
   \end{minted}
   Intuitively, the first rule above says that if there is an edge from vertex \texttt{x} to vertex \texttt{y}, then there is a path from \texttt{x} to \texttt{y}. The second rule says that if there is an edge from \texttt{x} to \texttt{z} and there exists a path from \texttt{z} to \texttt{y}, then there is a path from \texttt{x} to \texttt{y} as well.
 \end{exmp}
@@ -144,6 +147,7 @@ A \textit{Datalog program} is a finite set of Datalog rules. The \textit{definit
 $D$ is called the \textit{Extensional Database} (EDB) and $P$ is called the \textit{Intensional Database} (IDB). We will refer to $D$ as the database and $P$ as the Datalog program. Thus, predicate symbols are partitioned into two disjoint sets: \textit{base} (or EDB or \textit{extensional}) and \textit{derived} (or IDB or \textit{intensional}). The definition of base predicate symbols is stored in $D$. Base predicate symbols can appear in the body of rules in $P$ but not in the head. Derived predicate symbols cannot appear in $D$ and their definition is in $P$. We will use $P_D$ to denote $P \cup D$.
 
 \section{Datalog Semantics}
+
 We give the least-fixpoint semantics of Datalog, which defines the outcome of the program in an operational way, based on repeatedly applying the rules of the program until no new facts can be derived and thus a fixpoint is reached. It is well known that this semantics is equivalent to the model-theoretic semantics as well as the proof-theoretic semantics \cite{10.5555/551350}.
 
 The fixpoint semantics is given in terms of an operator $T$, called the \textit{immediate consequence operator}, which derives new facts starting from known facts, using the rules of the program. Namely, $T_{P_D}$ takes as input a set of facts $I$, applies the rules, and returns a set of facts $T_{P_D}(I)$, called the \textit{immediate consequences} of $I$ w.r.t. $P_D$. $T_{P_D}$ can be defined formally using relational algebra. We refer to section 3.3 in \cite{greco_datalog_2016} for the precise definition. In short, the immediate consequence of a single rule is as simple as doing a cartesian product over the relations in the body of the rule joined by the same variables and then projecting the variables in the head of the rule. The immediate consequence of a set of rules is then the union of the immediate consequences of each rule.
@@ -177,7 +181,7 @@ The fixpoint semantics immediately leads to an algorithm to evaluate Datalog pro
 
 We then define another function called \textit{Eval} that evaluates a set of rules whose predicates in the head are the same. Consider a program $P$ and a database $D$. Let $R_1, \ldots, R_n$ be the base relations and $P_1, \ldots, P_m$ be the derived relations. For each derived predicate symbol $p_i$, we define \textit{Eval}($p_i, R_1, \ldots, R_n, P_1, \ldots, P_m$) as the union of calling \textit{Eval-Rule} over all rules with $p_i$ in the head.
 
-Now, given a Datalog program $P$ and a database $D$, where the base predicate symbols are $r_1, \ldots, r_n$, the derived predicate symbols are $p_1, \ldots, p_m$, and the base relations are $R_1, \ldots, R_n$, algorithm \ref{alg:naive-eval} performs the evaluation of $P$ over $D$.
+Now, given a Datalog program $P$ and a database $D$, where the base predicate symbols are $r_1, \ldots, r_n$, the derived predicate symbols are $p_1, \ldots, p_m$, and the base relations are $R_1, \ldots, R_n$, Algorithm \ref{alg:naive-eval} performs the evaluation of $P$ over $D$.
 
 \begin{algorithm}
   \caption{Naïve Evaluation}
@@ -235,7 +239,7 @@ We can now define the \textit{semi-naïve evaluation} as shown in Algorithm \ref
   \end{algorithmic}
 \end{algorithm}
 
-It is obvious that the semi-naïve evaluation is parallelizable. There are two levels of parallelism in algorithm \ref{alg:semi-naive-eval}. First, each invocation of \textit{Eval-Rule-Incr} can be done in parallel, that is, the body of the loop from line 9 to line 12. Second, as per the definition of \textit{Eval-Rule-Incr}, the invocations of \textit{Eval-Rule} called by \textit{Eval-Rule-Incr} can also be done in parallel. The body of the loop from line 1 to line 4 can be done in parallel as well.
+It is obvious that the semi-naïve evaluation is parallelizable. There are two levels of parallelism in Algorithm \ref{alg:semi-naive-eval}. First, each invocation of \textit{Eval-Rule-Incr} can be done in parallel, that is, the body of the loop from line 9 to line 12. Second, as per the definition of \textit{Eval-Rule-Incr}, the invocations of \textit{Eval-Rule} called by \textit{Eval-Rule-Incr} can also be done in parallel. The body of the loop from line 1 to line 4 can be done in parallel as well.
 
 \section{Datalog Extensions and Datalog in Flix}
 
@@ -245,7 +249,6 @@ The core fragment of Datalog cannot express non-monotone properties \cite{AFRATI
 
 \begin{exmp}
   The following Datalog program computes the set of pairs $(x, y)$ for which there is no path from $x$ to $y$ using negation:
-
   \begin{minted}{text}
     Path(x, y) :- Edge(x, y).
     Path(x, z) :- Path(x, y), Edge(y, z).
@@ -260,8 +263,7 @@ $$R(x_1, \ldots, x_n, F(x_0)) \text{ :- } S(x_1, \ldots, x_n, x_0).$$
 Here $F$ an aggregate function, for instance \texttt{count}, \texttt{sum}, \texttt{min}, \texttt{max}, etc, and $S(x_1, \ldots, x_n, x_0)$ is some rule body mentioning at least all variables of the head.
 
 \begin{exmp}
-  The following Datalog program computes the component representive of each vertex in a graph (the rule for computing \texttt{Connected} is ommitted):
-
+  The following Datalog program computes the component representative of each vertex in a graph (the rule for computing \texttt{Connected} is omitted):
   \begin{minted}{text}
     ComponentRep(x, min(y)) :- Connected(x, y).
   \end{minted}
@@ -269,14 +271,14 @@ Here $F$ an aggregate function, for instance \texttt{count}, \texttt{sum}, \text
 
 In order to guarantee the existence of a minimal model of every Datalog program, several complex conditions must hold. One approach is to insist that the domains over which we are aggregating are complete lattices and that the program is in a sense monotonic \cite{ROSS199779}. Intuitively, this means that adding more elements to the multi-set being operated upon can only increase (or decrease) the value of the aggregate.
 
-Flix adpots this approach to aggregation. In Flix, we call such rules \textit{constraints on lattices}, as opposed to \textit{constraints on relations}. To create such constraints, we have to define the lattice operations (the partial order, the least upper bound, and so on) as functions and associate them with a type. The aggregate, or latticenal value, is placed as the last atom in the head of the rule, and seperated with other atoms by a semicolon, instead of a comma.
+Flix adopts this approach to aggregation. In Flix, we call such rules \textit{constraints on lattices}, as opposed to \textit{constraints on relations}. To create such constraints, we have to define the lattice operations (the partial order, the least upper bound, and so on) as functions and associate them with a type. The aggregate, or latticenal value, is placed as the last atom in the head of the rule, and separated with other atoms by a semicolon, instead of a comma.
 
-The addition of functions is also necessary for better expressivity (e.g., string transformations, list operations). Arithmetic operations can also be seen as functions. The guarantee of termination and finiteness is lost and become a responsibility of the programmer with the existence of functions. For example, this simple rule does not terminate:
+The addition of functions is also necessary for better expressivity (e.g., string transformations, list operations). Arithmetic operations can also be seen as functions. The guarantee of termination and finiteness is lost and becomes a responsibility of the programmer with the existence of functions. For example, this simple rule does not terminate:
 \begin{minted}{text}
     A(x + 1) :- A(x).
 \end{minted}
 
-In Flix, we can make sure that the program terminate by adding a guard in the body where the guard can any boolean expression or a function application that returns a boolean:
+In Flix, we can make sure that the program terminates by adding a guard in the body where the guard can be any boolean expression or a function application that returns a boolean:
 \begin{minted}{text}
     A(x + 1) :- A(x), if x < 6.
 \end{minted}
@@ -316,7 +318,7 @@ We now demonstrate how Flix supports Datalog by an example.
       println("${result}")
 \end{minted}
 
-  The first thing to notice is the first-class support for Datalog constraints. In Flix, Datalog contraints, or Datalog programs, are first-class values. For example, the function \texttt{componentRep} returns a Datalog program containing the relation \texttt{ComponentRep}. The ``\texttt{| r}'' in the type means that it could contain more relations. This makes this returned Datalog program can be joined with other constraints, e.g. last line in \texttt{connectGraph}, and type check will succeed.
+  The first thing to notice is the first-class support for Datalog constraints. In Flix, Datalog constraints, or Datalog programs, are first-class values. For example, the function \texttt{componentRep} returns a Datalog program containing the relation \texttt{ComponentRep}. The ``\texttt{| r}'' in the type means that it could contain more relations. This makes this returned Datalog program can be joined with other constraints, e.g. last line in \texttt{connectGraph}, and type check will succeed.
 
   Secondly, in Flix, we can project any \texttt{Foldable} data structure containing the correct type of tuples into and from a relation. Here we project two set of tuples into the \texttt{Node} and the \texttt{Edge} relations and the query result of the Datalog constraints, i.e. the variable \texttt{result}, is a vector of tuples of two sets of nodes, or, the vector of edges between every pair of components.
 
@@ -373,7 +375,7 @@ We will not introduce the definition of RAM as Flix code here. Instead, we will 
     end
   \end{minted}
 
-  In this program, \texttt{Path} is the only derived predicate. Calling \textit{Eval-Rule-Incr} for \texttt{Path} includes the translation of both rules. However, there is no derived predicate in the body of the first rule, so the first rule is translated to an empty statement. For the second rule, the derived predicate \texttt{tc} appears in one atom in the body, so the \textit{search} statement is used to iterate over the \textit{New} relation $\Delta$\texttt{tc}. In Algorithm \ref{alg:semi-naive-eval}, line 11 is used to compute the \texttt{New} relations by set difference. In the implementation, it is done by the \textit{if} operation to check if the tuple is already in the \texttt{Full} relation.
+  In this program, \texttt{Path} is the only derived predicate. Calling \textit{Eval-Rule-Incr} for \texttt{Path} includes the translation of both rules. However, there is no derived predicate in the body of the first rule, so the first rule is translated to an empty statement. For the second rule, the derived predicate \texttt{Path} appears in one atom in the body, so the \textit{search} statement is used to iterate over the \textit{New} relation $\Delta \texttt{Path}$. In Algorithm \ref{alg:semi-naive-eval}, line 11 is used to compute the \texttt{New} relations by set difference. In the implementation, it is done by the \textit{if} operation to check if the tuple is already in the \texttt{Full} relation.
 \end{exmp}
 \label{exmp:tc-ram}
 
@@ -382,7 +384,7 @@ We will show one more example of a more complex Datalog program, where derived p
 \begin{exmp}
   The following Datalog program performs a point-to analysis of variables in a C program \cite{PGL-014}. The instructions of the program can be translated into \textit{EDB} relations as follows:
   \begin{minted}[escapeinside=||]{text}
-    AddressOf(a, b) |$\small \text{representing}$| a=\&b
+    AddressOf(a, b) |$\small \text{representing}$| a=&b
     Assign(a, b) |$\small \text{representing}$| a=b
     Load(a, b) |$\small \text{representing}$| a=*b
     Store(a, b) |$\small \text{representing}$| *a=b
@@ -493,7 +495,7 @@ Binary search trees are used to store ordered data. In our case, the data is the
 
 A range query is a query that retrieves data in a given range. In our case, the keys are tuples, and they are sorted first by the first element, then by the second element, and so on. As we have illustrated in Example \ref{exmp:tc-ram}, the \texttt{query} statement is always of the form \texttt{x[0]==a, x[1]==b, x[2]==c, ...}. When we are doing a range query, if at the current node, the first element of the key is less than \texttt{a}, or if the first element of the key is equal to \texttt{a} but the second element of the key is less than \texttt{b}, we can skip the left child of the current node, and so on. Likewise, we can skip the right child for some node. Only when the equality is met for all the elements in the query condition, we will visit both the left child and the right child.
 
-\section{Benchmark}
+\section{The Benchmark}
 \label{sec:benchmark}
 
 We have implemented a small benchmark suite that contains 4 files, 13 programs in total, to evaluate the performance of the Datalog engine in Flix.
@@ -535,22 +537,22 @@ The B-tree and its variants are widely used and studied in database systems. Man
 \section{B-Trees and B+ Trees}
 \label{sec:btrees}
 
-The B-tree is a multi-way search tree. A $m$-way search tree is a tree where each node has at most $m$ children, hence storing at most $m-1$ keys. The keys in a node are sorted, and the keys in the children of a node are in the range defined by the keys of the node.
+The B-tree is a multi-way search tree. An $m$-way search tree is a tree where each node has at most $m$ children, hence storing at most $m-1$ keys. The keys in a node are sorted, and the keys in the children of a node are in the range defined by the keys of the node.
 
-A B-tree of order m is a tree which satisfies the following properties:
+A B-tree of order $m$ is a tree which satisfies the following properties:
 \begin{itemize}
   \item Every node has at most $m$ children.
   \item Every node, except for the root and the leaves, has at least $\lceil m/2 \rceil$ children.
   \item The root node has at least two children unless it is a leaf.
   \item All leaves appear on the same level.
-  \item A non-leaf node with k children contains $k-1$ keys.
+  \item A non-leaf node with $k$ children contains $k-1$ keys.
 \end{itemize}
 
-In B-trees, every node stores a range of keys and their corresponding values. Each internal node's keys, including the root node, act as separation values which divide its subtrees, as shown in figure \ref{fig:btree_node} For example, if an internal node has 3 child nodes (or subtrees) then it must have 2 keys: $a_1$ and $a_2$. All values in the leftmost subtree will be less than $a_1$, all values in the middle subtree will be between $a_1$ and $a_2$, and all values in the rightmost subtree will be greater than $a_2$.
+In B-trees, every node stores a range of keys and their corresponding values. Each internal node's keys, including the root node, act as separation values which divide its subtrees, as shown in Figure \ref{fig:btree_node} For example, if an internal node has 3 child nodes (or subtrees), then it must have 2 keys: $a_1$ and $a_2$. All values in the leftmost subtree will be less than $a_1$, all values in the middle subtree will be between $a_1$ and $a_2$, and all values in the rightmost subtree will be greater than $a_2$.
 
-The fourth property means that B-tree is a balanced tree. The second property ensures that each node is at least half full. This implies that two half-full nodes can be joined to make a legal node, and one full node can be split into two legal nodes (with an element pulled out and put into the parent). This properties make it possible to delete and insert new values into a B-tree and adjust the tree to preserve the B-tree properties.
+The fourth property means that B-tree is a balanced tree. The second property ensures that each node is at least half full. This implies that two half-full nodes can be joined to make a legal node, and one full node can be split into two legal nodes (with an element pulled out and put into the parent). These properties make it possible to delete and insert new values into a B-tree and adjust the tree to preserve the B-tree properties.
 
-A B+ tree is a variant of a B-tree where the internal nodes do not store any pointers to records, thus all pointers to records are stored in the leaf nodes. In addition, a leaf node may include a pointer to the next leaf node to speed sequential access. This makes range queries easy to implement. Since in a B+ tree, values are not stored in internal nodes, all keys appear twice in the tree: once in an internal node and once in a leaf node. This leads to design choice to be made. In figure \ref{fig:btree_node}, if we denote all the keys stored in a subtree at pointer $P_i$ as $V_i$, then any $v \in V_i$ can either staisfy $K_{i-1} < v \leq K_i$ or $K_{i-1} \leq v < K_i$. We prefer the former because it makes the implementation of search consistent. When performing a search for some $k$ inside a node, we return the index of the first key that is greater than or equal to $k$. This index will always be the correct index of the pointer array to follow.
+A B+ tree is a variant of a B-tree where the internal nodes do not store any values, or pointers to records; thus, all values are stored in the leaf nodes. In addition, a leaf node may include a pointer to the next leaf node to speed sequential access. This makes range queries easy to implement. Since in a B+ tree, values are not stored in internal nodes, all keys appear twice in the tree: once in an internal node and once in a leaf node. This leads to a design choice to be made. In Figure \ref{fig:btree_node}, if we denote all the keys stored in a subtree at pointer $P_i$ as $V_i$, then any $v \in V_i$ can either satisfy $K_{i-1} < v \leq K_i$ or $K_{i-1} \leq v < K_i$. We prefer the former because it makes the implementation of search consistent. When performing a search for some $k$ inside a node, we return the index of the first key that is greater than or equal to $k$. This index will always be the correct index of the pointer array to follow.
 
 \begin{figure}[h]
   \centering
@@ -583,10 +585,9 @@ A B+ tree is a variant of a B-tree where the internal nodes do not store any poi
   \label{fig:btree_node}
 \end{figure}
 
+Compared to binary search trees, such as red-black trees, B-trees and their variants are more efficient in terms of I/O operations. B-trees are widely used in database systems to store indexes. The records in a database are stored on disk and pointers to the records are stored as values in the B-tree. The tree itself, serving as an index to the records, is also stored on disk. In our case, values are pointers to tuples in memory, and the tree is stored in memory as well. In binary search trees, there is a key and two pointers in each node, while in B-trees, $m$ keys are paired with only $m+1$ pointers. This means two things. First, since a key is paired with fewer pointers, B-trees use less memory. Second, the tree is shallower than a binary search tree, so fewer pointers are followed to find a key. And since the keys are stored consecutively as an array in a node, the keys are more likely to be in the cache when searched inside a node. This means that B-trees are more cache-friendly than binary search trees.
 
-Compared to binary search trees, such as red-black trees, B-trees and its variants are more efficient in terms of I/O operations. B-trees are widely used in database systems to store indexes. The records in a database are stored in disk and pointers to the records are stored as values in the B-tree. The tree itself, serves as an index to the records, is also stored in disk. In our case, values are pointers to tuples in memory, and the tree is stored in memory as well. In binary search trees, there is a key and two pointers in each node, while in B-trees, $m$ keys are paired with only $m+1$ pointers. This means two things. First, since a key is paired with less pointers, B-trees use less memory. Second, the tree is shallower than a binary search tree so less pointers are followed to find a key. And since the keys are stored consecutively as an array in a node, the keys are more likely to be in the cache when search inside a node. This means that B-trees is more cache friendly than binary search trees.
-
-Compared to B-trees, B+ trees have fewer pointers in the internal nodes. If we use a fixed size memory for a node, then B+ trees can hold more keys in one node, causing the tree to be shallower. And because we only store pointers to records in the leaf node, the structure of the leaf node is almost identical to the structure of the internal node. This also makes range query easier and efficient since we only need to traverse the leaf nodes and the leaf nodes are linked together. The definition of B+ tree in flix is as follows:
+Compared to B-trees, B+ trees have fewer pointers in the internal nodes. If we use a fixed size memory for a node, then B+ trees can hold more keys in one node, causing the tree to be shallower. And because we only store pointers to records in the leaf node, the structure of the leaf node is almost identical to the structure of the internal node. This also makes range query easier and more efficient since we only need to traverse the leaf nodes and the leaf nodes are linked together. The definition of B+ tree in Flix is as follows:
 
 \begin{minted}{text}
     enum BPlusTree[k: Type, v: Type, r: Region](Region[r], Ref[Node[k, v, r], r])
@@ -597,11 +598,11 @@ Compared to B-trees, B+ trees have fewer pointers in the internal nodes. If we u
     }
 \end{minted}
 
-Flix is a functional-first programming language that encourages the use of immutable data structures, but it has rich support for imperative programming with destructive updates to mutable data. It uses its effect system to separate pure and impure code. In particular, It uses the region concept to track the use of mutable memory. In Flix, all mutable memory belongs to a region that is tied to its lexical scope. When execution leaves the lexical scope of a region, all memory in that region becomes unreachable.
+Flix is a functional-first programming language that encourages the use of immutable data structures, but it has rich support for imperative programming with destructive updates to mutable data. It uses its effect system to separate pure and impure code. In particular, it uses the region concept to track the use of mutable memory. In Flix, all mutable memory belongs to a region that is tied to its lexical scope. When execution leaves the lexical scope of a region, all memory in that region becomes unreachable.
 
 Flix has two basic types of mutable memory: References and Arrays. Higher-level mutable data structures, such as the B+ tree here, are built on top of Refs and Arrays.
 
-A B+ tree contains a region, which tracks the lifetime of the tree, and a reference to the root node of the tree. A region is needed because other mutable data, such as the nodes of the tree, should have the same lifetime as the tree, so they need to be allocated using the same region as the tree. Therefore, the constrcutor will take a region as an argument, as well as the configuration of the tree, i.e. how many children can a node have at most. A new tree can then be created as follows:
+A B+ tree contains a region, which tracks the lifetime of the tree, and a reference to the root node of the tree. A region is needed because other mutable data, such as the nodes of the tree, should have the same lifetime as the tree, so they need to be allocated using the same region as the tree. Therefore, the constructor will take a region as an argument, as well as the configuration of the tree, i.e., how many children can a node have at most. A new tree can then be created as follows:
 
 \begin{minted}{text}
     def main(): Int32 =
@@ -611,11 +612,11 @@ A B+ tree contains a region, which tracks the lifetime of the tree, and a refere
         }
 \end{minted}
 
-A node in the B+ tree can be either an inner node or a leaf node. The \texttt{Empty} case searves as \texttt{Null} in other languages. The structure of the inner node is similar to that of the leaf node, they both contain an array of keys, an array of child nodes or values respectively, and an integer that stores the number of keys that currently exist in the node. The leaf node contains an extra pointer to the right sibling.
+A node in the B+ tree can be either an inner node or a leaf node. The \texttt{Empty} case serves as \texttt{Null} in other languages. The structure of the inner node is similar to that of the leaf node; they both contain an array of keys, an array of child nodes or values respectively, and an integer that stores the number of keys that currently exist in the node. The leaf node contains an extra pointer to the right sibling.
 
 \section{Insertion in B+ Trees}
 
-We now give the insertion algorithm for a B+ tree in algorithm \ref{alg:bplus-insert}, which will be used in the evaluation in the next chapter and is also the base for the $\text{B}^{\text{link}}$ tree. For convenience, the variable $keys$ and $vals$ are used to represent the key and value arrays in the node that is currently examined in the context.
+We now give the insertion algorithm for a B+ tree in Algorithm \ref{alg:bplus-insert}, which will be used in the evaluation in the next chapter and is also the base for the $\text{B}^{\text{link}}$ tree. For convenience, the variable $keys$ and $vals$ are used to represent the key and value arrays in the node that is currently examined in the context.
 
 \begin{algorithm}[h]
   \caption{Insertion in B+ Tree}\label{alg:bplus-insert}
@@ -657,13 +658,13 @@ We now give the insertion algorithm for a B+ tree in algorithm \ref{alg:bplus-in
 
 The insertion algorithm is a recursive algorithm. It first descends to the leaf node where the key should be inserted. The descending function simply calls the search function to find the child node to follow and pushes the current node and the index of the child into a stack, and then repeatedly calls itself on the child node until it reaches a leaf node. The search function is a binary search function that returns the index of the first key that is greater than or equal to the key to be inserted, as we have discussed above.
 
-The insertion function then checks if the key already exists in the leaf node, i.e. if the search reaches does not exceed the number of keys in the leaf node and the key is equal to the key at the index. If it exists, the value is updated. Otherwise, the key and value are inserted into the leaf node. The insertion may then cause the node to be split if the node is full. The split function will split the node into two nodes and return the key that should be inserted into the parent node. Recursive insertions are then performed using the stack. If we propagate all the way up util the stack is empty, then a new root node is created. There is one difference between splitting a leaf node and an inner node. As discussed, because values are only stored in leaf nodes in B+ trees, all keys appear twice in the tree. When splitting the leaf node, the middle key goes both into the new node and into the parent, while when splitting the inner node, the middle key leaves the current level and goes into the parent. This satisfy the sorted property ($K_{i-1} < v \leq K_i$) of the B+ tree.
+The insertion function then checks if the key already exists in the leaf node, i.e. if the search reaches does not exceed the number of keys in the leaf node and the key is equal to the key at the index. If it exists, the value is updated. Otherwise, the key and value are inserted into the leaf node. The insertion may then cause the node to be split if the node is full. The split function will split the node into two nodes and return the key that should be inserted into the parent node. Recursive insertions are then performed using the stack. If we propagate all the way up until the stack is empty, then a new root node is created. There is one difference between splitting a leaf node and an inner node. As discussed, because values are only stored in leaf nodes in B+ trees, all keys appear twice in the tree. When splitting the leaf node, the middle key goes both into the new node and into the parent, while when splitting the inner node, the middle key leaves the current level and goes into the parent. This satisfies the sorted property ($K_{i-1} < v \leq K_i$) of the B+ tree.
 
 \section{$\text{B}^{\text{link}}$ Trees}
 
-There are many variants of B-trees that are designed to support concurrent reading and writing. In thisp roject, we mainly studied the $\text{B}^{\text{link}}$ tree proposed by Lehman and Yao \cite{10.1145/319628.319663}. We pick this work because it appears implementable in Flix and it suits our need well. It foucses on concurrent reading and insertion while deletion is poorly supported -- and we do not need deletion in our case. Although this work is old, it is a classic work in the topic and there are some programs in the real world that use $\text{B}^{\text{link}}$ trees as the underlying data structure, with some improvements, e.g. PostgreSQL.
+There are many variants of B-trees designed to support concurrent reading and writing. In this project, we primarily studied the $\text{B}^{\text{link}}$ tree proposed by Lehman and Yao \cite{10.1145/319628.319663}. We chose this work because it is implementable in Flix and meets our needs well. It focuses on concurrent reading and insertion, although deletion is poorly supported—which is acceptable for our purposes as we do not require deletion. Despite being an older work, it is a classic in the field, and some real-world programs, such as PostgreSQL, use $\text{B}^{\text{link}}$ trees with certain improvements as their underlying data structure.
 
-The idea of the $\text{B}^{\text{link}}$ is to add another key-pointer pair to each inner node and an additional key to each leaf node. The structure of a node in a $\text{B}^{\text{link}}$ tree is shown in figure \ref{fig:blink_node}. The additional key is called the \textit{high key}, i.e., the largest key in the subtree rooted at that node. For an inner node, the high key is the highest key in the subtree pointed by $P_m$. For a leaf node, the high key is the key is the same as $K_m$. The additional pointer is called \textit{link} and it points to the right sibling. The node on every level is now linked together, hence the name $\text{B}^{\text{link}}$ tree. Note this change still satisfy the sorted property of a node, that is, all keys in the subtree pointed by $P_m$ are greater than $K_m$ and less than or equal to the high key $K_{m+1}$.
+The idea of the $\text{B}^{\text{link}}$ tree is to add another key-pointer pair to each inner node and an additional key to each leaf node. The structure of a node in a $\text{B}^{\text{link}}$ tree is shown in Figure \ref{fig:blink_node}. The additional key is called the \textit{high key}, i.e., the largest key in the subtree rooted at that node. For an inner node, the high key is the highest key in the subtree pointed by $P_m$. For a leaf node, the high key is the key is the same as $K_m$. The additional pointer is called \textit{link} and it points to the right sibling. The node on every level is now linked together, hence the name $\text{B}^{\text{link}}$ tree. Note this change still satisfies the sorted property of a node, that is, all keys in the subtree pointed by $P_m$ are greater than $K_m$ and less than or equal to the high key $K_{m+1}$.
 
 \begin{figure}[h]
   \centering
@@ -703,7 +704,7 @@ The idea of the $\text{B}^{\text{link}}$ is to add another key-pointer pair to e
 
 The $\text{B}^{\text{link}}$ tree is essentially a fine-grained locking scheme. Each node is paired with a lock. When a thread is accessing the fields in a node, it has to acquire the lock first. The high key and the link then serve as a way to know if the current node is being split by another thread. When accessing a node, if the search key  exceeds the high key, it means that the current node has been split and the thread should follow the link to the right sibling.
 
-Figure \ref{fig:blink_tree} from Lehman and Yao shows an example of a $\text{B}^{\text{link}}$ tree. Our specification differs from Lehman and Yao in that the rightmost node at each level has $+\infty$ as its high value, i.e., all the 99's in the diagram are changed to $+\infty$. Although the key $+\infty$ never appears in the tree, this decision is consistent as long as in the begning when the empty root is created, $+\infty$ is set as the high value. We will see later that this will the implementation easier in section \ref{sec:blink-insert}.
+Figure \ref{fig:blink_tree} from Lehman and Yao shows an example of a $\text{B}^{\text{link}}$ tree. Our specification differs from Lehman and Yao in that the rightmost node at each level has $+\infty$ as its high value, i.e., all the 99's in the diagram are changed to $+\infty$. Although the key $+\infty$ never appears in the tree, this decision is consistent as long as in the beginning when the empty root is created, $+\infty$ is set as the high value. We will see later that this will make the implementation easier in section \ref{sec:blink-insert}.
 
 \begin{figure}[h]
   \centering
@@ -728,14 +729,14 @@ The type definition of the $\text{B}^{\text{link}}$ tree in Flix is as follows:
 \end{minted}
 \end{listing}
 
-The node structure is similar to that of the B+ tree, with the addition of the high key, stored in the last element of the key array, the link, and the lock. The original paper uses a simple mutex lock because in their setting, a node is stored as a block in the disk. Reading a block is an atomic operation so there is no locking involved in the \texttt{get} method. It is only when then intension of reading the block is to update it that the lock is acquired. In our setting, we need to read-write locks because the nodes are stored in memory and when reading the fields in a node, we need to make sure that these fileds are not being modified at the same time by another thread. The extra ineteger represent the level of the node in the tree. Leaf nodes are at level 0, and the level increases as we go up the tree. Once a node is created, the level is fixed and will not change. Level is needed here to deal with the case that Lehman and Yao did not discuss, that is, when the root node is concurrently split by other threads. We will discuss this in section \ref{sec:blink-insert}.
+The node structure is similar to that of the B+ tree, with the addition of the high key, stored in the last element of the key array, the link, and the lock. The original paper uses a simple mutex lock because in their setting, a node is stored as a block in the disk. Reading a block is an atomic operation so there is no locking involved in the \texttt{get} method. It is only when the intention of reading the block is to update it that the lock is acquired. In our setting, we need read-write locks because the nodes are stored in memory and when reading the fields in a node, we need to make sure that these fields are not being modified at the same time by another thread. The extra integer represents the level of the node in the tree. Leaf nodes are at level 0, and the level increases as we go up the tree. Once a node is created, the level is fixed and will not change. Level is needed here to deal with the case that Lehman and Yao did not discuss, that is, when the root node is concurrently split by other threads. We will discuss this in section \ref{sec:blink-insert}.
 
 \section{Search in $\text{B}^{\text{link}}$ Trees}
 \label{sec:blink-search}
 
-To search for a value $k$ in the tree, the search process begins at the root and proceeds by comparing $k$ with the keys in each node in a path down the tree. At each node, we first acquire the read lock and then examine the keys and high key. If $k$ is greater than the high key, we follow the link to the right sibling, unlock the current node, and repeat searching in the sibling. Otherwise, we examine the key array to find the index of the first key that is greater than or equal to $k$. Then we use the index to get the child node to follow. We unlock the current node, push it the stack, and repeat the search in the child node until we reach a leaf node.
+To search for a value $k$ in the tree, the search process begins at the root and proceeds by comparing $k$ with the keys in each node in a path down the tree. At each node, we first acquire the read lock and then examine the keys and high key. If $k$ is greater than the high key, we follow the link to the right sibling, unlock the current node, and repeat searching in the sibling. Otherwise, we examine the key array to find the index of the first key that is greater than or equal to $k$. Then we use the index to get the child node to follow. We unlock the current node, push it onto the stack, and repeat the search in the child node until we reach a leaf node.
 
-The details of the search function is shown in algorithm \ref{alg:blink-search}, following the same naming convention in \ref{alg:bplus-insert}. Note how the high key is used to determine if we need to follow the link to the right sibling. In the descending function, even if we have found the correct child to follow at some level $i + 1$, when we examine that child node at level $i$, it is still possible that it has been split by another thread, and the key we are looking for is moved to the right.
+The details of the search function are shown in Algorithm \ref{alg:blink-search}, following the same naming convention in Algorithm \ref{alg:bplus-insert}. Note how the high key is used to determine if we need to follow the link to the right sibling. In the descending function, even if we have found the correct child to follow at some level $i + 1$, when we examine that child node at level $i$, it is still possible that it has been split by another thread, and the key we are looking for is moved to the right.
 
 Locking is involved in the function \texttt{searchInner} and \texttt{searchLeaf}. The difference is that in \texttt{searchInner}, when we have finished searching the current level and have obtained the correct child node to follow, we release the lock as we will then proceed to the next level. In \texttt{searchLeaf}, when the function returns, the lock is still held, as the node needs to be examined further depending on if we are only reading or doing insertion.
 
@@ -798,9 +799,9 @@ Locking is involved in the function \texttt{searchInner} and \texttt{searchLeaf}
 
 To insert a key-value pair, we first perform operations similar to that for searching. Beginning at the root, we scan down the tree to the leaf node that should contain the key, keeping track of the rightmost node that we examined at each level in a stack.
 
-The insertion of the key-value pair into the leaf node may necessitate splitting the node. In this case, we split the node as what we have seen in the B+ tree, with the addition of changing the high key. The high key of the new node is set to the high key of the old node, and the high key of the old node is set to the last key that remains in the old node after splitting, which is then pushed up to the parent node recoreded in the stack. The parent node, too, may need to be split. If so, we backtrack up the tree, splitting nodes and inserting new pointers into their parents. In all cases, we lock a node before modifying it. Just as what we discussed in the insertion algorithm of the B+ tree, the splitting of the inner node and the leaf node slightly differs. When splitting the leaf node, the high key is pushed up to the parent, while when splitting the inner node, it is the middle key which neither remains in the old node nor be put in the new node that is pushed up to the parent.
+The insertion of the key-value pair into the leaf node may necessitate splitting the node. In this case, we split the node as we have seen in the B+ tree, with the addition of changing the high key. The high key of the new node is set to the high key of the old node, and the high key of the old node is set to the last key that remains in the old node after splitting, which is then pushed up to the parent node recorded in the stack. The parent node, too, may need to be split. If so, we backtrack up the tree, splitting nodes and inserting new pointers into their parents. In all cases, we lock a node before modifying it. Just as we discussed in the insertion algorithm of the B+ tree, the splitting of the inner node and the leaf node slightly differs. When splitting the leaf node, the high key is pushed up to the parent, while when splitting the inner node, it is the middle key which neither remains in the old node nor is put in the new node that is pushed up to the parent.
 
-The details of the insertion algorithm is shown in algorithm \ref{alg:blink-insert}, again following the same naming convention in \ref{alg:bplus-insert}, where $keys$, $vals$, and $level$ are used to represent the key array, value array, and the level of the node that is currently examined in the context, i.e. $node'$.
+The details of the insertion algorithm are shown in Algorithm \ref{alg:blink-insert}, again following the same naming convention in Algorithm \ref{alg:bplus-insert}, where $keys$, $vals$, and $level$ are used to represent the key array, value array, and the level of the node that is currently examined in the context, i.e., $node'$.
 
 \begin{algorithm}[h]
   \caption{Insert in $\text{B}^{\text{link}}$ Tree}\label{alg:blink-insert}
@@ -860,51 +861,50 @@ The details of the insertion algorithm is shown in algorithm \ref{alg:blink-inse
   \end{algorithmic}
 \end{algorithm}
 
-We mentioned before that unlike the original paper, for the rightmost node at each level, the high key is set to $+\infty$ instead of the actual largest key in this subtree. This makes splitting the rightmost leaf node easier. When the rightmost leaf is split, we can always safely set the high key of the new node to that of the old node, which is $+\infty$, regardless of if we have inserted a key that is greater than all existing keys. This makes spiltting the rightmost node consistent with splitting other nodes.
+We mentioned before that unlike the original paper, for the rightmost node at each level, the high key is set to $+\infty$ instead of the actual largest key in this subtree. This makes splitting the rightmost leaf node easier. When the rightmost leaf is split, we can always safely set the high key of the new node to that of the old node, which is $+\infty$, regardless of if we have inserted a key that is greater than all existing keys. This makes splitting the rightmost node consistent with splitting other nodes.
 
-We also mentioned that Lehman and Yao fail to discuss what must happen when the root node becomes full and must be split. When an inserter recurses up the tree, it is possible it has recursed up to the root but the root level has been split by other threads and a new root has been created. In this case the stack it made while descending does not help for finding the correct parents anymore. We adopt the solution from PostgreSQL. PostgreSQL has adpoted $\text{B}^{\text{link}}$ trees as base for its index structure. Their solution is that when this happens, we re-descending the tree until we reach the level one above the old root \cite{postgres_readme}. Typically the re-descending only needs to examine one level of nodes, because in most cases, if the old root level has been split, there will be enough space for insertion and re-descending is not needed. It is rare that the root level is split and is quickly filled up again by other threads. In this case, the re-descending is needed. But it is highly unlikely that even the new root level is split and filled up.
+We also mentioned that Lehman and Yao fail to discuss what must happen when the root node becomes full and must be split. When an inserter recurses up the tree, it is possible it has reached the root, but the root level has been split by other threads, and a new root has been created. In this case, the stack made while descending does not help in finding the correct parents anymore. We adopt the solution from PostgreSQL. PostgreSQL has adopted $\text{B}^{\text{link}}$ trees as the base for its index structure. Their solution is that when this happens, we re-descend the tree until we reach the level one above the old root \cite{postgres_readme}. Typically, the re-descending only needs to examine one level of nodes because, in most cases, if the old root level has been split, there will be enough space for insertion, and re-descending is not needed. It is rare for the root level to be split and quickly filled up again by other threads. In this case, re-descending is necessary, but it is highly unlikely that even the new root level is split and filled up.
 
-This locking scheme is efficient in that only a constant number of nodes are locked at any time. The original paper couples locks as part of moving right when relocating a child node's downlink during an ascent of the tree.  This is the only point where it has to simultaneously hold three locks (a lock on the child, the original parent, and the original parent's right sibling). However, in our implementation, an inserter nevers couples any locks, neither between the child and the parent, nor between siblings. This means that only one lock is held at any time. We will not give a rigorous proof of the correctness here but we argue that as long as we always obtain the correct pointer to follow from the current node when the current node is locked, and we always lock the node the pointer points to before accessing its fields, the implementation is correct.
+This locking scheme is efficient in that only a constant number of nodes are locked at any time. The original paper couples locks as part of moving right when relocating a child node's downlink during an ascent of the tree. This is the only point where it has to simultaneously hold three locks (a lock on the child, the original parent, and the original parent's right sibling). However, in our implementation, an inserter never couples any locks, neither between the child and the parent, nor between siblings. This means that only one lock is held at any time. We will not provide a rigorous proof of the correctness here, but we argue that as long as we always obtain the correct pointer to follow from the current node when the current node is locked, and we always lock the node the pointer points to before accessing its fields, the implementation is correct.
 
 \section{Range Query}
 \label{sec:range-query}
 
-The implementation of range query in B+ trees and $\text{B}^{\text{link}}$ trees is similar. We find the first key that is greater than or equal to the left bound of the range in the inner node, with moving to the right involved in $\text{B}^{\text{link}}$ tree, and then traverse down the tree to the leaf node. This is exactly the same as in searches and insertions. The \texttt{forAll} function simply follow the leftmost child in each node and traverse the leaf level all the way to the rightmost leaf node.
+The implementation of range queries in B+ trees and $\text{B}^{\text{link}}$ trees is similar. We find the first key that is greater than or equal to the left bound of the range in the inner node, with moving to the right involved in $\text{B}^{\text{link}}$ trees, and then traverse down the tree to the leaf node. This is exactly the same as in searches and insertions. The \texttt{forAll} function simply follows the leftmost child in each node and traverses the leaf level all the way to the rightmost leaf node.
 
-In $\text{B}^{\text{link}}$ trees, we always lock the read lock when we are reading the fields in both inner nodes and leaf nodes. This enables threads doing queries or iterations to not block other threads from reading or writing the tree. Dead-locks could occur if in the query or iteration tries to modify the tree. Programmers using these two functions should be aware of this and avoid modifying the tree in the query or iteration.
+In $\text{B}^{\text{link}}$ trees, we always lock the read lock when we are reading the fields in both inner nodes and leaf nodes. This enables threads doing queries or iterations to not block other threads from reading or writing the tree. Deadlocks could occur if the query or iteration tries to modify the tree. Programmers using these two functions should be aware of this and avoid modifying the tree in the query or iteration.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \chapter{Evaluation}
 \label{ch:evaluation}
 
-In this chapter, we answer the following five research questions:
-
+In this chapter, we address the following research questions:
 \begin{itemize}
   \item[\textbf{RQ0}] Does our implementation of the trees satisfy the asymptotic bound?
   \item[\textbf{RQ1}] Is insertion and range query in the B+ tree faster than in the built-in red-black trees?
-  \item[\textbf{RQ2}] Is insertion in the $\text{B}^{\text{link}}$ tree faster than in the B+ tree and red-blakc tree?
+  \item[\textbf{RQ2}] Is insertion in the $\text{B}^{\text{link}}$ tree faster than in the B+ tree and red-black tree?
   \item[\textbf{RQ3}] Is Datalog evaluation using B+ trees faster than using red-black trees?
   \item[\textbf{RQ4}] Is Datalog evaluation using $\text{B}^{\text{link}}$ trees faster than using B+ trees and red-black trees?
 \end{itemize}
 
-The experiments are run a machine with 64 GB of memory and an Intel Core i5-13500 that has 14 threads.
+The experiments were conducted on a machine with 64 GB of memory and an Intel Core i5-13500 CPU with 14 threads.
 
-To answer the question 0 and 1, we do the following experiment. We create trees where the keys and values are integers. The value does not matter in the experiment so we set the value to be the same as the key. We then first propagate the tree with a certain number of keys that are generated randomly. We then measure the time of inserting another key-value pair into the tree. Because the time complexity of insertion in both B+ trees and red-black trees are $O(\log_2 n)$ when binary search is used in B+ trees, if we divide the time by $log_2 n$, we should expect a constant. Since measuring the time of inserting one key-value pair is not accurate, we insert 100 random key-value pairs and divide the time by 100. Because we propagate the tree to a size that is much greater than 100, dividing $100 \log_2 n$ is acceptable even though $n$ is changing.
+To answer questions 0 and 1, we performed the following experiment: we created trees where both the keys and values were integers. The value was set to be the same as the key since it does not impact the experiment. We then populated the tree with a certain number of randomly generated keys. We measured the time taken to insert another key-value pair into the tree. Because the time complexity of insertion in both B+ trees and red-black trees is $O(\log_2 n)$ when binary search is used in B+ trees, dividing the time by $\log_2 n$ should yield a constant. To ensure accuracy, we inserted 100 random key-value pairs and divided the time by 100. Since the tree was initially populated to a size much larger than 100, dividing by $100 \log_2 n$ is reasonable even though $n$ is changing.
 
-If not mentioned otherwise, the random number is generated under a fixed seed so that the same set of keys are generated for different trees. And we run the experiment 5 times and take the average time for the benchmark on trees.
+Unless otherwise specified, the random numbers were generated with a fixed seed to ensure the same set of keys for different trees. We ran the experiment five times and took the average time for benchmarking the trees.
 
-The result of insertion is shown in figure \ref{fig:insert_BPlusTree} where the size of the trees range from $2^{17}, 2^{18}, \cdots, 2^{21}$. We can see that both B+ trees and red-black trees satisfy the bound since all lines are almost flat. We can clearly see that insertion in B+ trees is faster than in red-black trees because in B+ trees, when comparing keys in a node, it is more likely that the key array is in the cache. The B+ tree with order 16 is obviously slower and the there is no significant difference between the B+ tree with order 32, 64 and 128. We mention that the built-in red-black trees in the flix standard library is an optimized and benchmarked implementation while our B+ trees is a simple and quick implementation.
+The results of the insertion experiment are shown in Figure \ref{fig:insert_BPlusTree}, where the size of the trees ranged from $2^{17}$ to $2^{21}$. We observed that both B+ trees and red-black trees satisfy the asymptotic bound, as evidenced by the nearly flat lines. Insertion in B+ trees is clearly faster than in red-black trees because, in B+ trees, the key array is more likely to be in the cache when comparing keys. The B+ tree with order 16 was slower, while there was no significant difference between B+ trees with orders 32, 64, and 128. It is important to note that the built-in red-black trees in the Flix standard library are optimized and benchmarked, while our B+ trees were implemented quickly and simply.
 
-B+ trees are often used for database systems where the nodes are stored in a block in a disk so the size of the node is usually determined so that one node fits in one block, minimizing the number of I/O operations. In our case, the nodes are stored in memory and it is fine that a node does not fit in a cache line. Smaller nodes increases the tree height and traversal time but fits better in CPU caches, leading to potentially faster access times within each node. We expect that the B+ tree with a too small size of node will be slower since the L1 cache is usually large to hold a node so the height of the tree is more important. The result of insertion meet our expectation as the B+ tree with order 16 is slower than the other three.
+B+ trees are often used in database systems where nodes are stored as blocks on a disk, so the size of a node is usually determined to fit within one block, minimizing I/O operations. In our case, nodes are stored in memory, and it is acceptable for a node not to fit within a cache line. Smaller nodes fit better in CPU caches, potentially leading to faster access times within each node, but it increase the tree height and traversal time. We expected that B+ trees with too small a node size would be slower because, since the L1 cache is usually large enough to hold a node, making the tree height a more important factor. The results met our expectations, with the B+ tree of order 16 being slower than the other three.
 
-The result of range query is shown in figure \ref{fig:rq_BPlusTree}. We first propagate the tree with $2^{20}$ keys starting from 1 to $2^{20}$ but the order is randomly shuffled. We then measure the time of querying different ranges where the left bound is half of the size of tree, i.e. $2^{19}$, and the size of the range is $2^6$, $2^10$, $2^{14}$, $2^{18}$. We expect that range query on a small range in B+ trees is faster than red-black tree which is true in the experiment. However when the range becomes bigger, e.g. $1/4$ of the size of the tree, namely $2^{18}$, the B+ tree is slower than red-black tree. This is because, as we have seen in section \ref{sec:range-query}, the implementation of range query tries to find the first key that is greater than or equal to the left bound in each node using binary search. When the range is large, we need to do plenty of comparisons in each node to find the child to follow. But the values are only stored in leafs, so we have to traverse down to the leaf before we actually do any work. However in red-black trees, when traversing the inner nodes, if the key falls in the range, we can immediately run the given function on the value in the node.
+The range query results are shown in Figure \ref{fig:rq_BPlusTree}. We first populated the tree with $2^{20}$ keys, shuffled randomly. We then measured the time of querying different ranges, where the left bound was half the size of the tree, i.e., $2^{19}$, and the range sizes were $2^6$, $2^{10}$, $2^{14}$, and $2^{18}$. We expected that range queries on a small range would be faster in B+ trees than in red-black trees, which was confirmed by the experiment. However, as the range size increased, e.g., $2^{18}$ (one-fourth the size of the tree), B+ trees became slower than red-black trees. This is because, as explained in Section \ref{sec:range-query}, the implementation of range queries in B+ trees requires many comparisons within each node to find the correct child to follow. Values are only stored in leaves, so we must traverse down to the leaves before performing any work. In contrast, in red-black trees, if the key falls within the range, we can immediately apply the given function to the value in the node during traversal.
 
-To answer the question 2, we propagate the trees to a certain size with random integers and measure the time. For $\text{B}^{\text{link}}$ trees, we use 14 threads which is the number of cores in the machine and the input is partitioned evenly among the threads. The result in \ref{fig:insert_blink} shows that the best $\text{B}^{\text{link}}$ tree is on average 3 times faster than the best B+ tree which is again 3 times faster than the red-black tree. $\text{B}^{\text{link}}$ with order 32 is the best in the experiment and 64 also comes very close. If the nodes are too small, the height of tree is too large and nodes are split more often, leading to more locks and more time. If the nodes are too large, the time it takes to examine a node and do insertion on a node becomes longer and locks are more likely to compete with each other. We have also tested different combinations of the number of threads and the order of the tree and the result is consistent -- using threads equal to the number of cores and the order of 32 and 64 are the best.
+To answer question 2, we populated the trees to a certain size with random integers and measured the time. For $\text{B}^{\text{link}}$ trees, we used 14 threads (the number of cores in the machine) and evenly partitioned the input among the threads. The results in Figure \ref{fig:insert_blink} show that the best $\text{B}^{\text{link}}$ tree is, on average, three times faster than the best B+ tree, which is again three times faster than the red-black tree. The $\text{B}^{\text{link}}$ tree with order 32 performed best in the experiment, with order 64 also performing well. If nodes are too small, the tree height increases, leading to more frequent node splits, more locks, and longer times. Conversely, if nodes are too large, examining a node and inserting into it takes longer, and locks are more likely to compete. We also tested different combinations of the number of threads and the order of the tree and observed consistent results: using threads equal to the number of cores and orders of 32 or 64 performed best.
 
-We did not test the range query of the $\text{B}^{\text{link}}$ tree because it is implemented in the same way as the B+ tree with locks acquired if other threads are modifying the node and there is no parallelism available for a range query.
+We did not test the range query for the $\text{B}^{\text{link}}$ tree because its implementation is the same as for the B+ tree, with locks acquired if other threads modify the node, and no parallelism is available for a range query.
 
-To answer the question 3 and 4, we run the benchmark with four different implementation of the engine. The baseline is the built-in engine in Flix release 0.46.0 that uses red-black trees. Because Flix is functional-first language that adopts the concept of regions to seperate pure and impure code as we have mentioned in section \ref{sec:btrees}. The definition of Datalog programs, including the rules (constraints) and the results (models) is defined as follow:
+To answer questions 3 and 4, we ran the benchmark with four different implementations of the engine. The baseline is the built-in engine in Flix release 0.46.0, which uses red-black trees. Flix is a functional-first language that adopts the concept of regions to separate pure and impure code, as mentioned in Section \ref{sec:btrees}. The definition of Datalog programs, including rules (constraints) and results (models), is as follows:
 \begin{minted}{text}
     pub enum Datalog[v] {
         case Datalog(Vector[Constraint[v]], Vector[Constraint[v]])
@@ -913,11 +913,11 @@ To answer the question 3 and 4, we run the benchmark with four different impleme
     }
 \end{minted}
 
-If we use a mutable data structure in the engine, after the evaluation of the whole Datalog program, we need to copy the results back to into an immutable map. We can not simply change \texttt{Map} to \texttt{BLinkTree} because it will introduce a region variable \texttt{r} in the type, i.e. \texttt{Datalog[v, r]}. Therefore, for fair comparisons for the B+ tree and $\text{B}^{\text{link}}$ tree, we add another engine where the only difference between the built-in engine is that we add an extra copy of the results after evaluation. The results are shown in figure \ref{fig:benchmark}.
+If we use a mutable data structure in the engine, we need to copy the results back into an immutable map after evaluating the entire Datalog program. We cannot simply change \texttt{Map} to \texttt{BLinkTree} because it would introduce a region variable \texttt{r} in the type, i.e., \texttt{Datalog[v, r]}. Therefore, for fair comparisons for the B+ tree and $\text{B}^{\text{link}}$ tree, we added another engine where the only difference from the built-in engine is an extra copy of the results after evaluation. The results are shown in Figure \ref{fig:benchmark}.
 
-Compared to the baseline, the B+ tree engine is on average slightly slower than the baseline, partly due to the copying. If we compare it with the baseline with copying, the B+ tree engine is almost always faster, although just merely. The $\text{B}^{\text{link}}$ tree engine is significantly faster than the baseline and the B+ tree engine. On the four realistic programs in the \texttt{Closure.flix} and the first points-to analysis in the \texttt{PointsTo.flix}, the $\text{B}^{\text{link}}$ tree engine is 1.2x to 2.2x faster than the baseline, depending on the number of rules in the program and how rule looks like. Usually, we gain more from parallelism if there are more rules. For example, on the program \texttt{propagate3}, which we illustrated in section \ref{sec:benchmark}, the $\text{B}^{\text{link}}$ tree engine is 5x faster than the baseline.
+Compared to the baseline, the B+ tree engine is, on average, slightly slower, partly due to the copying. When compared with the baseline with copying, the B+ tree engine is almost always faster, though only marginally. The $\text{B}^{\text{link}}$ tree engine is significantly faster than both the baseline and the B+ tree engine. In the four realistic programs in \texttt{Closure.flix} and the first points-to analysis in \texttt{PointsTo.flix}, the $\text{B}^{\text{link}}$ tree engine is 1.3x to 2.3x faster than the baseline, depending on the number of rules and their complexity. Generally, the more rules there are, the more we gain from parallelism. For example, in the \texttt{propagate3} program illustrated in Section \ref{sec:benchmark}, the $\text{B}^{\text{link}}$ tree engine is 5 times faster than the baseline. For the rest of the programs, the $\text{B}^{\text{link}}$ tree engine is on average 2.6 times faster than the baseline.
 
-The only exception where both $\text{B}^{\text{link}}$ tree engine and the B+ tree engine are slower than the baseline is the program \texttt{points2}. The difference between this \texttt{points2} and \texttt{points1} is that two atoms in the body of the load rule are swapped, causing a range query statement falls back to a search-and-if statement in the compiled RAM code. The reason why the $\text{B}^{\text{link}}$ tree engine is slower than the baseline is not clear.
+The only exception where both the $\text{B}^{\text{link}}$ tree engine and the B+ tree engine are slower than the baseline is in the \texttt{points2} program. The difference between \texttt{points2} and \texttt{points1} is that two atoms in the body of the load rule are swapped, causing a range query statement to fall back to a search statement in the compiled RAM code. The reason why the $\text{B}^{\text{link}}$ tree engine is slower than the baseline in this case is unclear.
 
 \newpage
 \newgeometry{top=1in, bottom=1in, left=0.8in, right=0.8in}
@@ -944,7 +944,7 @@ The only exception where both $\text{B}^{\text{link}}$ tree engine and the B+ tr
     \centering
     \includegraphics[width=\textwidth]{asset/insert2.png}
     \captionsetup{width=0.9\textwidth}
-    \caption{Time of propagating diefferent trees}
+    \caption{Time of populating diefferent trees}
     \label{fig:insert_blink}
   \end{minipage}
 
@@ -969,11 +969,11 @@ The only exception where both $\text{B}^{\text{link}}$ tree engine and the B+ tr
 
 \section{Optimizing the $\text{B}^{\text{link}}$ Tree}
 
-The implementation of the $\text{B}^{\text{link}}$ tree is a quick implementation. There are possibly many optimizations that can be done with respect to both the algorithm and the code. For example, there are different ways to implement the range query. The current implementation is to find the first key that is greater than or equal to the left bound in each level of the tree. This is not optimal because in the inner nodes, we will do plenty of comparisons of keys that are in the range which will be revisited again in the leaf level if the range is large. Since we have high keys in $\text{B}^{\text{link}}$ trees, we can instead find the node whose high key is the first one that is greater than or equal to the left bound in each level. Only after we have reached the correct leaf node, we will start to examine the key array.
+The current implementation of the $\text{B}^{\text{link}}$ tree is a quick solution. There are numerous potential optimizations for both the algorithm and the code. For instance, there are alternative ways to implement the range query. The current approach finds the first key greater than or equal to the left bound at each level of the tree. This is not optimal because in the inner nodes, many comparisons of keys within the range will be revisited at the leaf level if the range is large. Since $\text{B}^{\text{link}}$ trees have high keys, we could instead locate the node whose high key is the first to meet or exceed the left bound at each level. Only after reaching the correct leaf node would we examine the key array.
 
 \section{Index Selection and Rule Rewriting}
 
-We can also consider optimizations at the source level. For example, the benchmark \texttt{points1} contains the rules in example \ref{exmp:point-to}. We have seen that the load rule will produce two range queries. However, programmers are probably not aware the underlying implementation of the engine and they might write a load rule where the second and the third atom in the body are swapped. If then, the second atom will be compiled to a search statement as follows:
+We can also consider optimizations at the source level. For example, the benchmark \texttt{points1} contains the rules in Example \ref{exmp:point-to}. We have seen that the load rule will produce two range queries. However, programmers might not be aware of the underlying implementation of the engine and could write a load rule where the second and third atoms in the body are swapped. If so, the second atom would be compiled to a search statement as follows:
 
 \begin{minted}[escapeinside=||]{text}
     search 0$ |$\in$| Load do
@@ -996,9 +996,9 @@ We can also consider optimizations at the source level. For example, the benchma
     end;
 \end{minted}
 
-We can add an analyzing phase in the compiler to reorder the atoms in the rules so that range queries are used as much as possible.
+We can add an analysis phase in the compiler to reorder the atoms in the rules so that range queries are used as much as possible.
 
-We can also analyze the program to determine which index is the best for each relation, that is, what order of the elements in the tuple is the best when the tuple is stored in a sorted tree data structure. For example, the benchmark \texttt{intersect3} contains rules similar to the following:
+Additionally, we can analyze the program to determine the best index for each relation, i.e., the optimal order of the elements in the tuple when stored in a sorted tree data structure. For example, the benchmark \texttt{intersect3} contains rules similar to the following:
 
 \begin{minted}{text}
     A(1 , i) :- Check(a, b, c), In(i, a, b, c).
@@ -1008,28 +1008,37 @@ We can also analyze the program to determine which index is the best for each re
     A(5 , i) :- Check(a, b, c), In(i, a, b, c).
 \end{minted}
 
-where the EDB is \texttt{Check} and \texttt{In} and the IDB is \texttt{A}. The current implementation will compile all five rules to be search statements. But if we analyze the program, we can actually store the tuples of the \texttt{In} relation as \texttt{(a, b, c, i)}. Then these rules can be translated into range queries.
+where the EDB is \texttt{Check} and \texttt{In}, and the IDB is \texttt{A}. The current implementation compiles all five rules as search statements. However, if we analyze the program, we can actually store the tuples of the \texttt{In} relation as \texttt{(a, b, c, i)}. Then these rules can be translated into range queries.
 
-Multiple indices can be created for the same relation. This means that for one relation, we can have multiple trees that store the tuples in different orders of the elements. Although performance can substantially improve, the memory footprint can become very large.
+Multiple indices can be created for the same relation. This means that one relation can have multiple trees storing the tuples in different orders of the elements. Although this can substantially improve performance, the memory footprint can become very large.
 
-Index selection is studied and implemented by some other Datalog engines. For example, Souffle, A Datalog Synthesis Tool for Static Analysis, uses a strategy to automatically constructs an appropriate set of indices \cite{10.14778/3282495.3282500}.
+Index selection is studied and implemented by some other Datalog engines. For example, Souffle, a Datalog synthesis tool for static analysis, uses a strategy to automatically construct an appropriate set of indices \cite{10.14778/3282495.3282500}.
 
-\section{Parallelism through Data Paritioning}
+\section{Parallelism through Data Partitioning}
 
-Another direction of parallelism is to partition the tuples of the relations and let different threads do the evaluation of the rules on different partitions. This parallelism is probably more promising in that the level of parallelism is not limited by the number of rules in the program or by the skewed wordload of the rules. But data partitioning is also difficult because we want such a partition that the workload of each thread is balanced and the communication between threads is minimized. Communication here means that the threads probably need to exchange their newly found facts in the IDB with other thread based on the paritioning strategy. A rich line of research on partitioning strategies for Datalog exists since the 1990s. The monograph Modern Datalog Engines \cite{DBS-073} has listed a good resource of literature and Datalog engines on this topic.
+Another direction for parallelism is to partition the tuples of the relations and let different threads evaluate the rules on different partitions. This parallelism is promising because the level of parallelism is not limited by the number of rules in the program or by skewed workload distribution. However, data partitioning is also challenging because we need a partitioning strategy that balances the workload of each thread and minimizes communication between threads. Communication means that threads may need to exchange their newly found facts in the IDB with other threads based on the partitioning strategy. A rich line of research on partitioning strategies for Datalog has existed since the 1990s. The monograph "Modern Datalog Engines" \cite{DBS-073} lists a wealth of literature and Datalog engines on this topic.
+
+
+\section{Expanding the Benchmark Suite}
+
+Another future work is to enhance the benchmark suite to include more real-world Datalog programs and use actual input data instead of randomly generated ones. For example, in the field of program analysis, there are complex analyses with hundreds of relations and rules, and the input data extracted from real-world programs can be substantial. Developing a more comprehensive benchmark suite would provide a better evaluation of the Datalog engine's performance under realistic conditions.
 
 \chapter{Conclusion}
 \label{ch:conclusion}
 
-\todo{summarize the text}
-\todo{summarize the evaluation and Conclude on the problem statement from the introduction}
-\todo{describe lessons learned: Flix, Datalog, Concurrent B+Trees}
+In this thesis, we explored the optimization of the Datalog engine in the Flix programming language, focusing on parallelism and efficient data structures. The primary goal was to improve the performance of Datalog evaluation by introducing parallelism and utilizing a concurrent B+ tree, specifically the $\text{B}^{\text{link}}$ tree, to replace the red-black tree used in the current implementation.
+
+We began by introducing Datalog, its syntax, semantics, semi-naïve evaluation, and the evaluation algorithm as implemented in Flix. The introduction of parallelism into the Datalog engine was then discussed, highlighting the addition of a new parallel statement to the compiled Datalog program and the implementation of the $\text{B}^{\text{link}}$ tree as a concurrent data structure.
+
+Our evaluation involved comparing the performance of the $\text{B}^{\text{link}}$ tree engine against the baseline red-black tree engine. The results demonstrated that while the B+ tree engine showed marginal improvements over the baseline, the $\text{B}^{\text{link}}$ tree engine provided significant performance gains, especially in programs with a higher number of rules. The $\text{B}^{\text{link}}$ tree engine was up to 5x faster in some benchmarks, and on average more than 2x faster, illustrating the benefits of parallelism and efficient data structures in Datalog evaluation.
+
+Throughout this project, I learned valuable lessons about the Flix programming language, Datalog, and the implementation of concurrent data structures. The region-based memory management in Flix was particularly interesting as a way to ensure manageable and safe use of mutable data structures and imperative code, although it sometimes brought inconvenience, as seen in the evaluation chapter. Additionally, the study of Datalog evaluation provided insights into the challenges and opportunities in implementing and optimizing Datalog engines, and laid a solid foundation for future research in this field.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \cleardoublepage
 \addcontentsline{toc}{chapter}{Bibliography}
-\bibliographystyle{plain}
+\bibliographystyle{unsrt}
 \bibliography{refs}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
